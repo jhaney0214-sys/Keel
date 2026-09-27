@@ -1,0 +1,15 @@
+{
+  "name": "13-month certificate special at 4.35%",
+  "product": "certificates",
+  "rate": 4.35,
+  "term_months": 13,
+  "window_months": 3,
+  "volume": 25000000,
+  "maturing_renewal": 70,
+  "sources": {
+    "new_money": 45,
+    "money_market": 30,
+    "regular_shares": 25
+  },
+  "wholesale_spread": 0.15
+}

@@ -432,6 +432,10 @@ def profitability_section(r):
                        [[label(x.product), k(x.balance), pct(x.rate(x.interest)), pct(x.rate(x.ftp)),
                          pct(x.rate(x.spread)), pct(x.rate(x.fees - x.servicing)), k(x.net), pct(x.rate(x.net))]
                         for x in deposits]))
+    dp = r.get("deposit_pricing")
+    if dp and dp["products"]:
+        from keel import depositpricing
+        parts.append(depositpricing.moves_table(dp))
     parts.append("<h3>From products to the institution ($000, annual run-rate)</h3>")
     rows = [["Product spreads over FTP", k(tot["product_spread"])], ["Capital credit", k(tot["capital_credit"])],
             ["Treasury margin (rate mismatch)", k(tot["treasury"])], ["= Net interest income", k(tot["nii"])],

@@ -42,6 +42,10 @@ def main(argv=None):
     swp.add_argument("folder")
     swp.add_argument("trade", help="a trade JSON file")
     swp.add_argument("--out", default=None, help="default: <folder>/report/swap-<file name>.html")
+    spc = sub.add_parser("special", help="deposit pricing: a certificate special's marginal cost, and rate moves")
+    spc.add_argument("folder")
+    spc.add_argument("spec", help="a special JSON file")
+    spc.add_argument("--out", default=None, help="default: <folder>/report/special-<file name>.html")
     qry = sub.add_parser("query", help="ad hoc report: group, filter and total any table")
     qry.add_argument("folder")
     qry.add_argument("spec", nargs="?", help="a saved query JSON file (or use the options)")
@@ -75,9 +79,10 @@ def main(argv=None):
             return 2
         print("%s -> %s" % (args.source, args.target))
         return 0
-    if args.command in ("price", "newproduct", "swap", "query", "callreport"):
+    if args.command in ("price", "newproduct", "swap", "special", "query", "callreport"):
         try:
-            return {"price": run_price, "newproduct": run_newproduct, "swap": run_swap, "query": run_query,
+            return {"price": run_price, "newproduct": run_newproduct, "swap": run_swap, "special": run_special,
+                    "query": run_query,
                     "callreport": run_callreport}[args.command](args)
         except model.InputError as error:
             print("input error: %s" % error, file=sys.stderr)
@@ -203,6 +208,30 @@ def run_price(args):
                         servicing_cost=pct(args.servicing_cost), fee_yield=pct(args.fee_yield),
                         origination_cost=pct(args.origination_cost), risk_weight=pct(args.risk_weight))
     print(pricing.text(pricing.quote(deal, assumptions)))
+    return 0
+
+
+def run_special(args):
+    import json
+    from keel import deposits, depositpricing, terms
+    positions, assumptions, _, _ = load(args.folder)
+    with open(args.spec, encoding="utf-8") as handle:
+        spec = json.load(handle)
+    result = {"special": depositpricing.special(positions, assumptions, spec),
+              "moves": depositpricing.rate_moves(positions, assumptions, deposits.study(args.folder, assumptions),
+                                                 wholesale_spread=float(spec.get("wholesale_spread", 0.15)))}
+    stem = os.path.splitext(os.path.basename(args.spec))[0]
+    out = args.out or os.path.join(args.folder, "report", "special-%s.html" % stem)
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    with open(out, "w", encoding="utf-8") as handle:
+        handle.write(terms.translate(depositpricing.page(result, report.STYLE), assumptions))
+    s = result["special"]
+    print("special -> %s" % out)
+    print("%s: $%s raised, $%s new money; marginal cost %s against wholesale %.2f%%%s" % (
+        s["name"], "{:,.0f}".format(s["volume"]), "{:,.0f}".format(s["new_money"]),
+        "n/a" if s["marginal"] is None else "%.2f%%" % (100 * s["marginal"]), 100 * s["wholesale"],
+        "" if s["breakeven_new_share"] is None else "; beats borrowing above %.0f%% new money" % (
+            100 * s["breakeven_new_share"]) if s["breakeven_new_share"] <= 1 else "; no new-money share beats borrowing"))
     return 0
 
 

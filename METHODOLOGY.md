@@ -293,6 +293,29 @@ rate, costs at its own rates, origination spread over the average life),
 and the whole book's key measures and limits with and without it. The
 institution runs carry the product's interest only, not its servicing cost.
 
+## Deposit pricing
+
+`keel/depositpricing.py`. For a share product with balance B, rate r and
+balance sensitivity s (annual runoff per 100bp of market-over-share spread,
+as a decimal), a move of d basis points brings B x s x d / 100 of balance in
+a year and costs B x d / 10,000 on the balance already there plus the new
+balance at r + d, so the marginal cost is r + d + 1 / (100 s), whatever B
+is. s is the deposit study's estimate when its R² is 0.2 or better and
+positive, else the settings' `runoff_per_100bp`; a product with s of zero
+shows no money moving.
+
+A certificate special of volume V at rate s over a window: rollovers
+R = min(V, maturing x renewal share), with maturing the certificates of that
+product whose remaining term is within the window, repriced from the
+standard renewal rate q (the curve at the term plus the product's spread,
+what the plan pays on renewal); the rest, V - R, split by `sources`, each
+existing product leaving at its balance-weighted rate. Incremental interest
+is V x s less what the moved money paid before; the marginal cost is that
+over the new money. Wholesale is the curve at the term plus
+`wholesale_spread`. With the other sources' mix at rate m, the break-even
+new-money share of V - R is [R(s - q) + (V - R)(s - m)] / [(V - R)(w - m)];
+above 1 no share of new money makes the special cheaper than borrowing.
+
 ## Investment purchases and swaps
 
 `keel/swap.py` settles the trade on the analysis date through cash. A sale's

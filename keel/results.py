@@ -238,6 +238,8 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
     result["deposits"] = deposits.study(folder, a) if folder else None
     recommended = deposits.recommended(result["deposits"]) if result["deposits"] else None
     result["deposit_recommended"] = recommended
+    from keel import depositpricing
+    result["deposit_pricing"] = depositpricing.rate_moves(positions, a, result["deposits"])
     if assumption_tests is None:
         assumption_tests = folder is not None
     result["sensitivity"] = sensitivity.run(positions, a, recommended) if assumption_tests else None

@@ -191,6 +191,13 @@ def write_trades(name="mid-cu"):
     for file, spec in trades.items():
         with open(os.path.join(folder, file), "w", encoding="utf-8") as handle:
             json.dump(spec, handle, indent=2)
+    specials = os.path.join(EXAMPLES, "specials")
+    os.makedirs(specials, exist_ok=True)
+    with open(os.path.join(specials, "13-month-special.json"), "w", encoding="utf-8") as handle:
+        json.dump({"name": "13-month certificate special at 4.35%", "product": "certificates", "rate": 4.35,
+                   "term_months": 13, "window_months": 3, "volume": 25000000, "maturing_renewal": 70,
+                   "sources": {"new_money": 45, "money_market": 30, "regular_shares": 25},
+                   "wholesale_spread": 0.15}, handle, indent=2)
     return len(trades)
 
 

@@ -48,6 +48,10 @@ of them from it:
   product's weight set in the settings.
 - **RAROC pricing calculator:** a loan's or deposit's life economics at a
   rate, the rate that earns the hurdle, and the break-even rate.
+- **Deposit pricing:** the marginal cost of new money for a rate move on
+  each share product (from the deposit study's balance sensitivity), and a
+  certificate special's true cost once maturing certificates and share
+  balances that move over are counted, against wholesale funding.
 - **Investment purchases and swaps:** the realized loss, the yield pickup,
   the month the extra NII earns the loss back in the base case and at
   +/-300bp, and the whole book with and without the trade.
@@ -103,6 +107,7 @@ python -m keel serve examples/mid-cu         # what-if, pricing, new product, tr
 python -m keel price examples/mid-cu --product used_auto --amount 22000 --term 60 --rate 7.25
 python -m keel newproduct examples/mid-cu examples/proposals/green-auto.json
 python -m keel swap examples/mid-cu examples/trades/loss-swap.json
+python -m keel special examples/mid-cu examples/specials/13-month-special.json
 python -m keel query examples/mid-cu --by product,rate_band --measure "sum balance" --measure "wavg spread balance"
 python -m keel run examples/community-bank   # the same, for a bank
 python -m keel run examples/backtest-cu      # a quarter on: trend, assumption changes and the back-test
@@ -302,6 +307,30 @@ each scenario with the cumulative extra NII, and every measure and limit
 with and without the trade. `examples/trades/` has a loss swap and a
 Treasury purchase from cash.
 
+## Deposit pricing
+
+The Profitability section's deposit-pricing table gives, for each share
+product, the marginal cost of new money for a move of -50 to +100bp: the
+extra interest a year (every dollar already there reprices) over the extra
+balance it brings, using the deposit study's balance sensitivity where its
+fit is usable and the settings' `runoff_per_100bp` otherwise, against
+twelve-month wholesale money.
+
+`keel special <folder> <special.json>` prices a certificate special:
+
+```json
+{"name": "13-month special", "product": "certificates", "rate": 4.35, "term_months": 13,
+ "window_months": 3, "volume": 25000000, "maturing_renewal": 70,
+ "sources": {"new_money": 45, "money_market": 30, "regular_shares": 25}}
+```
+
+Certificates maturing in the window that would have renewed anyway
+(`maturing_renewal` percent) move from the standard renewal rate to the
+special; the rest of the volume splits by `sources`. The page shows where
+the money comes from, the incremental interest, the marginal cost of the
+new money against wholesale of the same term, the new-money share needed to
+beat borrowing, and a grid by rate and new-money share.
+
 ## Accounts, members and branches
 
 With core files in `data/`, the report's Members section prices every loan
@@ -392,7 +421,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 165 tests
+python -m unittest discover -s tests      # 172 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,
