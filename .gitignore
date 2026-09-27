@@ -5,3 +5,8 @@ examples/*/report/
 # A real credit union's files must never be committed. Keep them outside this
 # folder, or here, where git ignores them.
 private/
+# The three generated credit unions: rebuilt identically by
+# `python tools/make_samples.py` (fixed seeds), and 11 MB between them.
+examples/small-cu/
+examples/mid-cu/
+examples/large-cu/

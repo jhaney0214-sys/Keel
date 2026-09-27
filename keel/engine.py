@@ -62,7 +62,9 @@ class Stepper(object):
 
     def reprice(self, p, month):
         product = self.a.products[p.product]
-        if p.rate_type == "variable" and p.age > 0 and p.age % p.reset_months == 0:
+        first = p.next_reset_months or p.reset_months
+        if (p.rate_type == "variable" and p.age >= first > 0
+                and (p.age - first) % p.reset_months == 0):
             rate = self.index_rate(p.index, month) + p.margin
             if p.floor is not None:
                 rate = max(rate, p.floor)
@@ -93,9 +95,29 @@ class Stepper(object):
                 scheduled = min(balance, max(0.0, payment - interest))
             cpr = min(max(product.cpr - product.cpr_per_100bp * shift, product.cpr_floor), product.cpr_cap)
             prepaid = (balance - scheduled) * monthly(cpr)
+        elif p.amortization == "balloon":
+            # Paid as if over `amort_months`, and due in full at maturity.
+            if p.term_months <= 1:
+                scheduled = balance
+            else:
+                n, r = max(p.amort_months, 1), p.rate / 12.0
+                payment = balance * r / (1.0 - (1.0 + r) ** -n) if r > 0 else balance / n
+                scheduled = min(balance, max(0.0, payment - interest))
+            cpr = min(max(product.cpr - product.cpr_per_100bp * shift, product.cpr_floor), product.cpr_cap)
+            prepaid = (balance - scheduled) * monthly(cpr)
         elif p.amortization == "bullet":
             if p.term_months <= 1:
                 scheduled = balance
+        elif p.amortization == "callable":
+            # Due at maturity; from its first call date the issuer calls it
+            # whenever the coupon exceeds what the market would charge for the
+            # remaining term by more than the product's threshold.
+            if p.term_months <= 1:
+                scheduled = balance
+            elif p.age + 1 >= p.call_months:
+                market = self.curve_rate(month, p.term_months) + product.spread
+                if p.rate - market > product.call_threshold:
+                    scheduled = balance
         elif p.amortization == "nonmaturity":
             decayed = balance * monthly(product.runoff + product.runoff_per_100bp * shift)
         remaining = balance - scheduled - prepaid - decayed
@@ -103,6 +125,8 @@ class Stepper(object):
         p.balance = remaining - chargeoff
         if p.term_months:
             p.term_months -= 1
+        if p.amort_months:
+            p.amort_months -= 1
         p.age += 1
         return Flow(interest, scheduled + prepaid + decayed, chargeoff)
 
@@ -300,7 +324,10 @@ def _originate(template, spec, amount, month, stepper):
         rate=0.0, rate_type=template.rate_type, index=template.index, margin=template.margin,
         reset_months=template.reset_months, term_months=spec.new_term,
         amortization=spec.new_amortization or template.amortization,
-        floor=template.floor, cap=template.cap, new_business=True)
+        floor=template.floor, cap=template.cap, new_business=True,
+        amort_months=spec.new_amort_term, call_months=spec.new_call_months)
+    if p.amortization == "balloon" and p.amort_months <= p.term_months:
+        p.amort_months = max(p.term_months * 2, 300)
     if p.rate_type == "variable":
         p.rate = stepper.index_rate(p.index, month) + p.margin
     else:

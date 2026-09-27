@@ -1,10 +1,11 @@
 """python -m keel run <folder with positions.csv and assumptions.json> [--out DIR] [--name NAME]"""
 
 import argparse
+import datetime
 import os
 import sys
 
-from keel import model, report
+from keel import importer, model, report
 
 
 def main(argv=None):
@@ -13,18 +14,27 @@ def main(argv=None):
     run = sub.add_parser("run", help="project, measure, reconcile and write the report")
     run.add_argument("folder")
     run.add_argument("--out", default=None, help="report folder (default: <folder>/report)")
-    run.add_argument("--name", default="Credit union")
+    run.add_argument("--name", default=None, help="default: the first sentence of the assumptions' notes")
     args = parser.parse_args(argv)
 
+    out = args.out or os.path.join(args.folder, "report")
+    imported = None
     try:
-        positions = model.read_positions(os.path.join(args.folder, "positions.csv"))
         assumptions = model.read_assumptions(os.path.join(args.folder, "assumptions.json"))
+        if os.path.isdir(os.path.join(args.folder, "data")):
+            # Core-system files: import, pool and tie them to the GL first.
+            imported = importer.import_folder(args.folder, datetime.date.fromisoformat(assumptions.as_of))
+            positions = imported.positions
+            os.makedirs(out, exist_ok=True)
+            importer.write_positions(positions, os.path.join(out, "positions_imported.csv"))
+        else:
+            positions = model.read_positions(os.path.join(args.folder, "positions.csv"))
         model.check(positions, assumptions)
     except model.InputError as error:
         print("input error: %s" % error, file=sys.stderr)
         return 2
-    out = args.out or os.path.join(args.folder, "report")
-    result = report.build(positions, assumptions, out, args.name)
+    name = args.name or assumptions.notes.get("about", "Credit union").split(".")[0]
+    result = report.build(positions, assumptions, out, name, imported)
     failed = [c for c in result["checks"] if not c.passed]
     print("report -> %s" % os.path.join(out, "report.html"))
     print("year-one NII %s; NEV ratio after +300bp %.2f%% (%s); reconciliation %d of %d passed" % (

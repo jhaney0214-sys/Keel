@@ -23,7 +23,7 @@ from keel.curve import Curve, Scenario, standard_scenarios
 
 SIDES = ("asset", "liability")
 RATE_TYPES = ("fixed", "variable", "administered", "none")
-AMORTIZATIONS = ("level", "bullet", "nonmaturity", "none")
+AMORTIZATIONS = ("level", "bullet", "balloon", "callable", "nonmaturity", "none")
 
 
 class InputError(ValueError):
@@ -46,6 +46,9 @@ class Position:
     amortization: str = "none"
     floor: float = None         # decimal
     cap: float = None           # decimal
+    amort_months: int = 0       # balloon: remaining amortization period, longer than the term
+    call_months: int = 0        # callable: months until it can first be called
+    next_reset_months: int = 0  # variable: months to the first reset (default reset_months)
     age: int = 0                # months since the analysis date
     new_business: bool = False
 
@@ -75,7 +78,9 @@ def read_positions(path):
                 index=(row.get("index") or "").strip(), margin=_pct(row.get("margin"), 0.0),
                 reset_months=_int(row.get("reset_months")), term_months=_int(row.get("term_months")),
                 amortization=row["amortization"].strip().lower(),
-                floor=_pct(row.get("floor")), cap=_pct(row.get("cap")))
+                floor=_pct(row.get("floor")), cap=_pct(row.get("cap")),
+                amort_months=_int(row.get("amort_months")), call_months=_int(row.get("call_months")),
+                next_reset_months=_int(row.get("next_reset_months")))
             if p.id in seen:
                 raise InputError("%s: id %r appears twice" % (where, p.id))
             seen.add(p.id)
@@ -85,10 +90,12 @@ def read_positions(path):
                 raise InputError("%s: unknown rate_type %r" % (where, p.rate_type))
             if p.amortization not in AMORTIZATIONS:
                 raise InputError("%s: unknown amortization %r" % (where, p.amortization))
-            if p.balance < 0:
-                raise InputError("%s: a negative balance is not a position" % where)
-            if p.amortization in ("level", "bullet") and p.term_months <= 0:
+            if p.balance < 0 and not (p.rate_type == "none" and p.amortization == "none"):
+                raise InputError("%s: only a non-earning contra account (an allowance) may be negative" % where)
+            if p.amortization in ("level", "bullet", "balloon", "callable") and p.term_months <= 0:
                 raise InputError("%s: a %s position needs term_months" % (where, p.amortization))
+            if p.amortization == "balloon" and p.amort_months <= p.term_months:
+                raise InputError("%s: a balloon needs amort_months longer than term_months" % where)
             if p.rate_type == "variable" and (not p.index or p.reset_months <= 0):
                 raise InputError("%s: a variable rate needs an index and reset_months" % where)
             positions.append(p)
@@ -109,6 +116,9 @@ class Product:
     rate_floor: float = 0.0
     new_term: int = 0             # months, for new business
     new_amortization: str = ""
+    new_amort_term: int = 0       # balloon new business: amortization period
+    new_call_months: int = 12     # callable new business: months to first call
+    call_threshold: float = 0.0   # callable: called when coupon exceeds the market by this
     spread: float = 0.0           # new-business rate over the curve at new_term
     discount_spread: float = 0.0  # NEV discount rate over the curve
     growth: float = 0.0           # FP&A plan: annual balance growth
@@ -127,7 +137,7 @@ def _decimal(value):
 #: shares 10.1%; `test_every_percent_field_is_converted` now guards the list.
 PERCENT_FIELDS = ("cpr", "cpr_per_100bp", "cpr_floor", "cpr_cap", "runoff", "runoff_per_100bp",
                   "beta", "rate_floor", "spread", "discount_spread", "growth", "charge_off",
-                  "haircut", "stress_runoff")
+                  "haircut", "stress_runoff", "call_threshold")
 
 
 @dataclasses.dataclass

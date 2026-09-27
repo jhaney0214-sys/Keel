@@ -52,12 +52,14 @@ td{padding:.35rem .7rem;border-bottom:1px solid var(--rule);white-space:nowrap;}
 """
 
 
-def build(positions, assumptions, out_dir, name="Credit union"):
+def build(positions, assumptions, out_dir, name="Credit union", imported=None):
     a = assumptions
     runs = {s.name: _going(positions, a, s) for s in a.scenarios}
     base_run = runs["base"]
     nevs = {s.name: measures.nev(positions, a, s) for s in a.scenarios if s.parallel}
-    test = measures.ncua_test(nevs["base"], nevs["+300"])
+    supervisory = {name: measures.nev(positions, a, s, supervisory=True)
+                   for s in a.scenarios for name in [s.name] if s.parallel and s.shock_bp in (0, 300)}
+    test = measures.ncua_test(supervisory["base"], supervisory["+300"])
     stressed = _going(positions, a, a.scenarios[0], stress=True)
     survival = measures.survival(stressed)
     checks = measures.reconcile(positions, a, runs)
@@ -80,9 +82,9 @@ def build(positions, assumptions, out_dir, name="Credit union"):
     for value, label in (
             (_m(base_y1), "Year-one NII, base plan"),
             (_p(test["post_shock_ratio"]), "NEV ratio after +300bp: %s" % test["ratio_rating"]),
-            (_p(test["sensitivity_ratio_decline"], 1), "NEV ratio decline at +300bp: %s" % test["sensitivity_rating"]),
-            ("%d months+" % a.horizon_months if survival is None else "month %d" % survival,
-             "Liquidity under the %d-month stress" % a.stress_months),
+            (_p(-test["sensitivity_value_decline"], 1), "NEV change at +300bp: %s" % test["sensitivity_rating"]),
+            ("12 months+" if survival is None else "month %d" % survival,
+             "Survival under the %d-month stress" % a.stress_months),
             ("%d of %d" % (passed, len(checks)), "Reconciliation checks passed")):
         parts.append("<div class='tile'><b>%s</b><span>%s</span></div>" % (value, html.escape(label)))
     parts.append("</div>")
@@ -107,16 +109,20 @@ def build(positions, assumptions, out_dir, name="Credit union"):
         rows.append([html.escape(key), _m(n.pv_assets), _m(n.pv_liabilities), _m(n.nev), _p(n.ratio),
                      _p(n.nev / base_nev.nev - 1, 1)])
     parts.append(_table(["Scenario", "PV assets", "PV liabilities", "NEV", "NEV ratio", "NEV vs base"], rows))
+    parts.append("<p class='muted'>This table uses the credit union's own share assumptions. NEV need not "
+                 "move in a straight line: floors on share rates stop liability costs falling in the down "
+                 "shocks while their present value keeps rising.</p>")
+    parts.append("<h3>NCUA NEV Supervisory Test</h3>")
+    parts.append(_table(["Supervisory basis", "PV assets", "PV liabilities", "NEV", "NEV ratio"], [
+        [key, _m(n.pv_assets), _m(n.pv_liabilities), _m(n.nev), _p(n.ratio)] for key, n in supervisory.items()]))
     parts.append(
-        "<p><strong>NCUA NEV Supervisory Test (+300bp):</strong> post-shock NEV ratio %s, <strong>%s</strong>; "
-        "decline in the NEV ratio %s, <strong>%s</strong> (decline in NEV itself: %s). Thresholds from NCUA "
-        "Letter SL 22-01: ratio above 7%% low, 4-7%% moderate, below 4%% high; sensitivity below 40%% low, "
-        "40-65%% moderate, above 65%% high.</p>" % (
-            _p(test["post_shock_ratio"]), test["ratio_rating"], _p(test["sensitivity_ratio_decline"], 1),
-            test["sensitivity_rating"], _p(test["sensitivity_value_decline"], 1)))
-    parts.append("<p class='muted'>%s NEV need not move in a straight line: floors on share rates stop "
-                 "liability costs falling in the down shocks while their present value keeps rising.</p>"
-                 % html.escape(a.notes.get("non_maturity_shares", "")))
+        "<p>At +300bp: post-shock NEV ratio %s, <strong>%s</strong>; NEV change %s, <strong>%s</strong>. "
+        "Non-maturity shares are priced at NCUA's standardized 99.00 in the base case and 95.04 at +300bp; "
+        "every other position keeps its modelled value. Thresholds from Letter SL 22-01: post-shock ratio "
+        "above 7%% low, 4-7%% moderate, below 4%% high; NEV decline below 40%% low, 40-65%% moderate, above "
+        "65%% high. (The decline in the ratio itself, not rated: %s.)</p>" % (
+            _p(test["post_shock_ratio"]), test["ratio_rating"], _p(-test["sensitivity_value_decline"], 1),
+            test["sensitivity_rating"], _p(test["sensitivity_ratio_decline"], 1)))
 
     # ---- FP&A
     parts.append("<h2>The plan</h2><h3>Income statement, base scenario</h3>")
@@ -163,10 +169,17 @@ def build(positions, assumptions, out_dir, name="Credit union"):
     parts.append(_table(["Month", "Cash", "Liquid investments after haircut", "Overnight borrowing",
                          "Available liquidity"], rows))
     parts.append("<p>%s Available liquidity is cash above the minimum, liquid investments after haircut, "
-                 "and contingent sources (%s), less borrowing already drawn.</p>" % (
-                     "Available liquidity stays positive for the whole %d-month horizon." % a.horizon_months
+                 "and contingent sources (%s), less borrowing already drawn. The horizon is the first "
+                 "twelve months; beyond that the stress's frozen share balances describe a different plan, "
+                 "not a stress.</p>" % (
+                     "Available liquidity stays positive through the first twelve months."
                      if survival is None else "<strong>Available liquidity runs out in month %d.</strong>" % survival,
                      html.escape(", ".join("%s %s" % (n, _m(c)) for n, c in a.contingent))))
+    peak, when = measures.funding_gap(base_run)
+    parts.append("<p><strong>The plan's own funding need:</strong> %s</p>" % (
+        "the base plan never borrows overnight." if peak <= 0 else
+        "the base plan borrows up to %s overnight, in month %d, because loans grow faster than shares. "
+        "That is a funding decision the plan has to make, whatever the stress shows." % (_m(peak), when)))
     parts.append("<h3>Contractual gap, today's positions only</h3>")
     parts.append(_table(["Month", "Net inflow", "Cumulative"], [[str(k), _m(n), _m(c)] for k, n, c in gap]))
 

@@ -56,15 +56,37 @@ class NEV:
         return self.nev / self.pv_assets if self.pv_assets else 0.0
 
 
-def nev(positions, assumptions, scenario):
+#: NCUA's NEV Supervisory Test prices every non-maturity share at these
+#: standardized values, whatever the credit union's own assumptions say, and
+#: leaves every other position at its own model value: 99.00 in the base
+#: scenario (a 1% benefit) and 95.04 at +300bp (a further 4% decline). From
+#: ALM First's and NCUA's descriptions of the test, read 2026-09-27.
+SUPERVISORY_SHARE_PRICE = {0.0: 0.99, 300.0: 0.9504}
+
+
+def is_share(position):
+    """A non-maturity share: the positions the supervisory test standardizes."""
+    return position.side == "liability" and position.amortization == "nonmaturity"
+
+
+def nev(positions, assumptions, scenario, supervisory=False):
     """Present value of every position's runoff cash flows, discounted at the
     scenario curve (as shocked on the analysis date) plus the product's
-    discount spread. Cash and non-earning positions count at book."""
+    discount spread. Cash and non-earning positions count at book.
+
+    With `supervisory`, non-maturity shares take NCUA's standardized prices
+    instead of their modelled value; only the base and +300bp scenarios have
+    one."""
+    if supervisory and scenario.shock_bp not in SUPERVISORY_SHARE_PRICE:
+        raise ValueError("the supervisory test prices shares only at base and +300bp, not %s"
+                         % scenario.name)
     flows = engine.runoff(positions, assumptions, scenario)
     by_product = {}
     pv_assets = pv_liabilities = 0.0
     for p in positions:
-        if p.id in flows:
+        if supervisory and is_share(p):
+            value = p.balance * SUPERVISORY_SHARE_PRICE[scenario.shock_bp]
+        elif p.id in flows:
             spread = assumptions.products[p.product].discount_spread
             value = 0.0
             for k, f in enumerate(flows[p.id], 1):
@@ -81,18 +103,20 @@ def nev(positions, assumptions, scenario):
 
 
 def ncua_test(base, shocked):
-    """The NEV Supervisory Test on the +300bp result. NCUA's letter names the
-    measure "NEV sensitivity" without a formula in what was read, so both
-    common definitions are given and labelled; the rating uses the decline
-    in the NEV ratio, and a reader should confirm which their examiner uses."""
+    """The NEV Supervisory Test, from the supervisory base and +300bp NEVs.
+
+    Two measures, both at +300bp: the post-shock NEV ratio, and the NEV
+    percent change (the decline in NEV itself), which is what NCUA and ALM
+    practitioners describe the sensitivity rating as using. The decline in
+    the ratio is reported beside it for reference, not rated."""
     ratio_decline = (base.ratio - shocked.ratio) / base.ratio if base.ratio else 0.0
     value_decline = (base.nev - shocked.nev) / base.nev if base.nev else 0.0
     return {
         "post_shock_ratio": shocked.ratio,
         "ratio_rating": ratio_rating(shocked.ratio),
-        "sensitivity_ratio_decline": ratio_decline,
         "sensitivity_value_decline": value_decline,
-        "sensitivity_rating": sensitivity_rating(ratio_decline),
+        "sensitivity_ratio_decline": ratio_decline,
+        "sensitivity_rating": sensitivity_rating(value_decline),
     }
 
 
@@ -127,12 +151,28 @@ def balance_sheet(month):
 
 # --------------------------------------------------------------- liquidity
 
-def survival(stressed):
-    """The first month available liquidity is negative under stress, or None."""
-    for m in stressed:
+#: The survival horizon is measured over the first year: after it, the
+#: stress's rule that shares never regrow while loans fund to plan stops being
+#: a stress and becomes a different plan. Found on the large sample, whose
+#: "survival" fell to month 48 from plan growth alone.
+SURVIVAL_MONTHS = 12
+
+
+def survival(stressed, months=SURVIVAL_MONTHS):
+    """The first month within `months` that available liquidity is negative
+    under stress, or None if it stays positive throughout."""
+    for m in stressed[:months]:
         if m.available_liquidity < 0:
             return m.month
     return None
+
+
+def funding_gap(run):
+    """The plan's own funding need: the most overnight borrowing it draws,
+    and the month it does. Growth that outruns share growth shows here, not
+    in the stress."""
+    peak = max(run, key=lambda m: m.overnight)
+    return peak.overnight, peak.month
 
 
 def contractual_gap(positions, assumptions, scenario, months=12):
