@@ -78,11 +78,15 @@ def rate_moves(positions, a, study=None, moves=MOVES, wholesale_spread=0.15):
             continue
         rate = interest / balance
         sens, source = sensitivity(product, a, study)
+        floor = a.products[product].rate_floor
         cells = []
         for d in moves:
-            change = balance * sens * d / 100.0
-            extra = balance * d / 10000.0 + change * (rate + d / 10000.0)
-            cells.append({"move": d, "balance_change": change, "cost_change": extra,
+            # A cut cannot take the rate below the product's floor: it moves
+            # only as far as the floor, and not at all when already there.
+            applied = max(d, int(round((floor - rate) * 10000))) if d < 0 else d
+            change = balance * sens * applied / 100.0
+            extra = balance * applied / 10000.0 + change * (rate + applied / 10000.0)
+            cells.append({"move": d, "applied": applied, "balance_change": change, "cost_change": extra,
                           "marginal": extra / change if change else None})
         out.append({"product": product, "balance": balance, "rate": rate, "sensitivity": sens, "source": source,
                     "moves": cells})
@@ -251,12 +255,15 @@ def moves_table(m):
     for p in m["products"]:
         cells = []
         for c in p["moves"]:
-            if c["marginal"] is None:
+            if c["move"] < 0 and c["applied"] >= 0:
+                cells.append("at its floor")
+            elif c["marginal"] is None:
                 cells.append("no money moves")
             elif c["move"] > 0:
                 cells.append(pct(c["marginal"]))
             else:
-                cells.append("saves " + pct(c["marginal"]))
+                cells.append("saves " + pct(c["marginal"]) + (
+                    "" if c["applied"] == c["move"] else " (%+dbp, to the floor)" % c["applied"]))
         rows.append([report.label(p["product"]), k(p["balance"]), pct(p["rate"]), pct(p["sensitivity"], 1),
                      p["source"]] + cells)
     return ("<h3 id='deposit-pricing'>Deposit pricing: marginal cost of new money</h3>" + report.table(head, rows)

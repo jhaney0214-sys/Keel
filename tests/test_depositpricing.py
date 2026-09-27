@@ -48,6 +48,15 @@ class Moves(unittest.TestCase):
         for c in mma["moves"]:
             self.assertAlmostEqual(c["marginal"], 0.02 + c["move"] / 10000.0 + 1 / (100 * 0.05), places=10)
 
+    def test_a_cut_stops_at_the_floor(self):
+        positions, a = book()
+        positions[1].rate = 0.001            # 10bp, over a 0% floor
+        mma = depositpricing.rate_moves(positions, a)["products"][0]
+        cut = {c["move"]: c for c in mma["moves"]}
+        self.assertEqual(cut[-25]["applied"], -10)
+        self.assertEqual(cut[-50]["applied"], -10)
+        self.assertEqual(cut[25]["applied"], 25)
+
     def test_the_study_is_used_only_when_it_fits(self):
         positions, a = book()
         good = {"products": [{"product": "mma", "sensitivity": {"runoff_per_100bp": 0.08, "r2": 0.5}}]}

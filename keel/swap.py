@@ -262,8 +262,8 @@ def page(result, style):
         step = 1 if len(path) <= 120 else 12
         parts.append(charts.line([(m, path[m - 1] / 1000.0, "month %d: cumulative extra NII $%sK" % (m, k(path[m - 1])))
                                   for m in range(step, len(path) + 1, step)],
-                                 lambda v: "%.0fK" % v, "Cumulative extra net interest income, base plan ($000)",
-                                 reference=loss / 1000.0, reference_label="the loss, $%sK" % k(loss),
+                                 lambda v: "%.0fK" % v, "Cumulative extra NII, base plan, against the $%sK loss "
+                                 "(dashed), $000" % k(loss), reference=loss / 1000.0, reference_label="",
                                  x_ticks=set(range(12, len(path) + 1, 12 if len(path) <= 120 else 60))))
     parts.append(report.table(
         ["Scenario", "Earn-back", "Year 1 NII change", "Year 2", "Year 3", "Whole plan", "Net worth ratio, end of "

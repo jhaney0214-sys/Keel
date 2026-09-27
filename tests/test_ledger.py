@@ -126,6 +126,17 @@ class Ledger(unittest.TestCase):
         self.assertAlmostEqual(nii["2026-12"], 60 - 8)
         self.assertAlmostEqual(nii["2027-01"], 9 - 9)
 
+    def test_a_product_newer_than_the_prior_run_does_not_break_the_back_test(self):
+        nii = history._actual_nii(self.tmp, ["2026-12"], {"auto": "asset"}, 1, SIDES)
+        self.assertAlmostEqual(nii["2026-12"], 60)          # certificates known, but not the prior run's
+
+    def test_an_older_snapshot_does_not_show_the_new_setting_as_a_change(self):
+        old = {"assumptions": {"products": {}, "settings": {"tax_rate": 0.0}, "limits": {}}}
+        new = {"assumptions": {"products": {}, "settings": {"tax_rate": 0.0, "fiscal_year_start": 1}, "limits": {}}}
+        self.assertEqual(history.changes(old, new), [])
+        new["assumptions"]["settings"]["tax_rate"] = 21.0
+        self.assertEqual(len(history.changes(old, new)), 1)
+
     def test_fiscal_year_start_must_be_a_month(self):
         with self.assertRaisesRegex(model.InputError, "fiscal_year_start"):
             model._fiscal(13)

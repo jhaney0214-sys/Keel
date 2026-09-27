@@ -132,6 +132,8 @@ def changes(prior, current):
             if old.get(f) != new.get(f):
                 out.append(("%s: %s" % (name, f), old.get(f), new.get(f)))
     for key in SETTINGS:
+        if key not in pa["settings"]:
+            continue            # a setting this snapshot's version of Keel did not record
         if pa["settings"].get(key) != ca["settings"].get(key):
             out.append(("setting: %s" % key, pa["settings"].get(key), ca["settings"].get(key)))
     for key in sorted(set(pa["limits"]) | set(ca["limits"])):
@@ -140,10 +142,12 @@ def changes(prior, current):
     return out
 
 
-def _actual_nii(folder, months, sides, fiscal_year_start=1):
-    """{month: actual NII} from actuals.csv/.xlsx rows for those months, where every product is reported."""
+def _actual_nii(folder, months, sides, fiscal_year_start=1, known=None):
+    """{month: actual NII} from the actuals (actuals.csv/.xlsx or the trial
+    balance) for those months, over the products in `sides`. `known` signs
+    every product a trial balance may map (default: `sides`)."""
     from keel import budget
-    _, table_rows = budget.actual_rows(folder, sides, fiscal_year_start)
+    _, table_rows = budget.actual_rows(folder, known or sides, fiscal_year_start)
     by_month = {}
     for _, row in table_rows:
         month = (row.get("month") or "").strip()[:7]
@@ -180,7 +184,11 @@ def backtest(prior, current, folder=None):
     months = prior["forecast"]["months"][:k]
     sides = {n: f["side"] for n, f in prior["forecast"]["products"].items() if n != CASH}
     fiscal = int(current["assumptions"]["settings"].get("fiscal_year_start") or 1)
-    actual = _actual_nii(folder, months, sides, fiscal) if folder else {}
+    # The ledger may map products launched since the prior run: sign them
+    # too, though only the prior run's products count toward its NII.
+    known = dict(sides)
+    known.update({n: f["side"] for n, f in current["forecast"]["products"].items() if n != CASH and n not in known})
+    actual = _actual_nii(folder, months, sides, fiscal, known) if folder else {}
     nii = [{"month": m, "forecast": prior["forecast"]["nii"][i], "actual": actual.get(m)} for i, m in enumerate(months)]
     short_forecast = prior["forecast"]["short_rate"][k - 1]
     short_actual = float(current["assumptions"]["curve"].get("1", 0.0)) if "1" in current["assumptions"]["curve"] \

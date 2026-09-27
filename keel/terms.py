@@ -27,6 +27,13 @@ BANK = (
     (r"\bCredit union\b", "Bank"),
     (r"\bcredit union\b", "bank"),
     (r"\bmembers\b", "customers"),
+    (r"\bMembers\b", "Customers"),
+    (r"\bmember\b", "customer"),
+    (r"\bMember\b", "Customer"),
+    (r"\bcertificates\b", "CDs"),
+    (r"\bCertificates\b", "CDs"),
+    (r"\bcertificate\b", "CD"),
+    (r"\bCertificate\b", "CD"),
 )
 _BANK = [(re.compile(p), r) for p, r in BANK]
 
