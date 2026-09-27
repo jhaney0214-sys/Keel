@@ -65,7 +65,12 @@ or `.xlsx`.
 | `certificates.csv` | certificate | `certificate_id, product_code, open_date, maturity_date, balance, rate`; optional `member_id, branch` |
 | `shares.csv` | product and balance tier | `product_code, tier_low, tier_high` (blank for no top), `accounts, balance, rate` |
 | `investments.csv` | security | `security_id, type` (mapped on the investments sheet), `description, maturity_date, book_value, book_yield, next_call_date` (callables), `wam_months` (MBS and CMOs) |
-| `borrowings.csv` | borrowing | `borrowing_id, lender` (mapped on the borrowings sheet), `balance, rate, maturity_date` |
+| `borrowings.csv` | borrowing | `borrowing_id, lender` (mapped on the borrowings sheet), `balance, rate, maturity_date`; optional `type` |
+
+How a security pays is its `amortization` column when there is one;
+otherwise a `wam_months` makes it an amortizing pass-through, a
+`next_call_date` a callable, no maturity at all stock or a stake, and
+anything else a bullet.
 
 Loans 90 or more days past due are treated as non-accrual. Loans and
 certificates are pooled by product, rate type, term and rate for speed;
