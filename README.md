@@ -52,6 +52,11 @@ of them from it:
 - **Key-assumption tests:** deposit betas, decay, prepayment speeds and new
   loan spreads each moved on its own, with the effect on NII, NEV and every
   rate-risk limit.
+- **Deposit study:** share betas (with their lag, and separately for
+  rising and falling rates), balance sensitivity to rate spreads, core
+  balances and decay, estimated from the institution's own history and set
+  against the assumptions in use; the assumption tests run the model on the
+  study's values too.
 - **Run history and back-testing:** every run is saved; the next one shows
   the trend, every assumption changed since, and last quarter's forecast
   against what actually happened (balances, administered rates, NII).
@@ -205,6 +210,18 @@ a new-business `volume`, a month-end `balance`, or an offering `rate`; the
 Noninterest sheet itemizes fee income and operating expense with growth and
 a start month. Between and after drivers, products grow at their planned
 rate from where the last driver left them.
+
+## The deposit study
+
+Put `deposit_history.csv` (month, product, balance, rate, market_rate, one
+row per share product per month) in the folder, and optionally
+`deposit_accounts.csv` (month, account_id, product, balance). The report's
+Deposit study section estimates each product's beta and lag, up and down
+betas, runoff per 100bp of spread, core balance and, from the accounts,
+decay; flags where the assumptions differ; and lists the values the study
+supports in the settings' units. It changes nothing by itself. `mid-cu` has
+five years of synthetic history whose true behaviour is set slightly away
+from its assumptions, and the study finds the gap in money-market decay.
 
 ## Key assumptions, history and back-testing
 

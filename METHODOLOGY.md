@@ -326,6 +326,35 @@ and +/-300bp, and its NII decline, NEV decline and NEV ratio are read
 against the same limits as the report. Decay changes NEV but not the plan's
 NII, because the plan holds share balances to their growth path.
 
+## The deposit study
+
+`keel/deposits.py`. For each share product with at least 13 months of
+history:
+
+- **Beta and lag:** ordinary least squares of the share rate on the market
+  rate lagged L months, L = 0 to 6 (at least 12 observations); the lag with
+  the highest R² is reported.
+- **Up and down betas:** the change in the share rate from the market's
+  trough to its peak (each shifted by the lag), over the market's change;
+  and from the peak to the end of the history likewise.
+- **Runoff per 100bp:** monthly log balance growth regressed on the spread
+  of the market rate over the share rate, in percentage points; minus the
+  slope, times 12. Recommended only when R² is at least 0.2.
+- **Core balance:** the lowest trailing-12-month balance over the average.
+- **Decay:** for the accounts with a balance in the first month, the share of
+  their combined balance still held in month t, fitted through the origin as
+  ln R(t) = (t/12) ln(1 - d). New accounts are excluded, which is why
+  aggregate balances cannot give decay.
+
+A flag is raised when an estimate differs from the assumption by 10 points
+of beta, 3 points of decay, or 2 points of runoff per 100bp (with R² of at
+least 0.2). A beta is recommended only with R² of at least 0.5. On synthetic
+history with known behaviour the estimates came within a point or two of
+the truth for money market (beta 53% against 55% up; decay 27% against
+28%); the regular-share lag was found at 6 months against a true 3, because
+a floored rate barely moves, which is also why its recommendation should be
+read with its R².
+
 ## Run history and back-testing
 
 `keel/history.py`. Each run saves its headline measures, limits,

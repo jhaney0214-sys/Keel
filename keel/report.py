@@ -572,7 +572,8 @@ def assumptions_test_section(r):
                  "run again. An assumption whose plausible range changes a limit's status is one the institution "
                  "needs its own evidence for: a deposit study for betas and decay, prepayment history for speeds.</p>")
     parts.append(charts.diverging_bars(
-        [("%s %s" % (x["family"].lower(), x["variant"].split(" ")[0]),
+        [("deposit study" if x["family"] == "Deposit study" else "%s %s" % (x["family"].lower(),
+                                                                        x["variant"].split(" ")[0]),
           x["values"]["nev_decline_300"] - base["nev_decline_300"],
           "%s %s: NEV decline %.1f%% (base %.1f%%), NEV ratio %.1f%%, NII decline %.1f%%" % (
               x["family"], x["variant"], x["values"]["nev_decline_300"], base["nev_decline_300"],
@@ -699,6 +700,50 @@ def peers_section(r):
     return "".join(parts)
 
 
+def deposits_section(r):
+    d = r.get("deposits")
+    if not d or not d["products"]:
+        return ""
+    parts = ["<section id='deposits'><h2>Deposit study</h2><p>Share betas and balance behaviour estimated from "
+             "this institution's own history (<code>deposit_history.csv</code>%s), against the assumptions the model "
+             "runs on. The study recommends; it changes nothing until the settings do.</p>" % (
+                 " and account balances in <code>deposit_accounts.csv</code>" if d["has_accounts"] else "")]
+    rows = []
+    for x in d["products"]:
+        b, s, dec, a = x["beta"], x["sensitivity"], x["decay"], x["assumed"] or {}
+        rows.append([
+            label(x["product"]), "%d (%s to %s)" % (x["months"], x["from"], x["to"]),
+            "" if a.get("beta") is None else pct(a["beta"], 0),
+            "" if b["beta"] is None else "%s (lag %d, R² %.2f)" % (pct(b["beta"], 0), b["lag"], b["r2"]),
+            "%s / %s" % ("n/a" if b["up_beta"] is None else pct(b["up_beta"], 0),
+                         "n/a" if b["down_beta"] is None else pct(b["down_beta"], 0)),
+            "" if a.get("runoff") is None else pct(a["runoff"], 0),
+            "not estimable from balances" if not dec else "%s (life %.1f yrs)" % (
+                pct(dec["decay"], 0), dec["average_life_years"] or 0),
+            "" if a.get("runoff_per_100bp") is None else pct(a["runoff_per_100bp"], 1),
+            "" if not s else "%s (R² %.2f)" % (pct(s["runoff_per_100bp"], 1), s["r2"]),
+            "" if x["core"] is None else pct(x["core"], 0),
+            " ".join(chip("near", f) for f in x["flags"]) or chip("within", "Supports it")])
+    parts.append(table(["Product", "Months", "Beta assumed", "Beta estimated", "Up / down beta", "Decay assumed",
+                        "Decay estimated", "Runoff per 100bp assumed", "Estimated", "Core balance", ""], rows))
+    rec = r.get("deposit_recommended") or {}
+    if rec:
+        fields = sorted({k for v in rec.values() for k in v})
+        parts.append("<h3>What the study supports, in the settings' units</h3>")
+        parts.append(table(["Product"] + fields, [[label(p)] + ["" if f not in v else "%g" % v[f] for f in fields]
+                                                  for p, v in sorted(rec.items())]))
+        parts.append("<p class='muted'>To adopt, copy into the Products sheet. The key-assumption tests above include "
+                     "a row that runs the model on these values, so the effect is visible before anyone decides.</p>")
+    parts.append("<p class='muted'>Beta: the share rate regressed on the market rate lagged 0 to 6 months, best fit "
+                 "shown. Up and down: the share rate's change over the market's rising and falling phases, each over "
+                 "the market's change. Runoff per 100bp: monthly balance growth regressed on the market-over-share "
+                 "spread, annualized; a low R² means balances did not move with rates and the estimate should not be "
+                 "used. Core: the lowest trailing-year balance over the average. Decay: the balance still held by the "
+                 "first month's accounts, fitted to (1 - d)^(t/12); aggregate balances cannot give it, because new "
+                 "money hides runoff.</p></section>")
+    return "".join(parts)
+
+
 def reconciliation(r):
     rows = [[esc(c.name), "<span class='%s'>%s</span>" % (
         "pass" if c.passed else "fail", "&#10003; Pass" if c.passed else "&#10005; FAIL"), esc(c.detail)]
@@ -748,8 +793,10 @@ def assumptions_section(r):
 
 def page(r, downloads=()):
     name, a = r["name"], r["assumptions"]
-    nav = [("summary", "Summary"), ("limits", "Limits"), ("rate-risk", "Rate risk"), ("plan", "Plan"),
-           ("liquidity", "Liquidity")]
+    nav = [("summary", "Summary"), ("limits", "Limits"), ("rate-risk", "Rate risk")]
+    if r.get("deposits"):
+        nav.append(("deposits", "Deposits"))
+    nav += [("plan", "Plan"), ("liquidity", "Liquidity")]
     if r["securities"] or r["imported"] is not None:
         nav.append(("portfolios", "Portfolios"))
     nav += [("profitability", "Profitability"), ("budget", "Budget")]
@@ -771,7 +818,8 @@ def page(r, downloads=()):
             "".join("<a href='%s'>%s</a>" % (href, esc(text)) for href, text in downloads)),
         "<nav aria-label='Sections'><div class='inner'>%s</div></nav><main>" % "".join(
             "<a href='#%s'>%s</a>" % (i, esc(t)) for i, t in nav),
-        summary(r), rate_risk(r), plan(r), liquidity(r), portfolios(r), profitability_section(r), budget_section(r),
+        summary(r), rate_risk(r), deposits_section(r), plan(r), liquidity(r), portfolios(r), profitability_section(r),
+        budget_section(r),
         adhoc_section(r), history_section(r), peers_section(r), reconciliation(r), assumptions_section(r),
         "</main><footer>Generated %s by Keel. Every figure is computed from the input files; none is typed. Keel "
         "runs on this computer and sends nothing anywhere.</footer></body></html>" % datetime.date.today().isoformat(),

@@ -99,6 +99,19 @@ def sheets(r):
     for i, q in enumerate(r.get("queries") or [], 1):
         title = re.sub(r"[\[\]:*?/\\]", "-", "Q%d %s" % (i, q["name"]))[:31]   # characters Excel refuses
         out[title] = [q["columns"]] + q["rows"] + ([q["total"]] if q["total"] else [])
+    d = r.get("deposits")
+    if d and d["products"]:
+        out["Deposit study"] = [["product", "months", "beta_assumed_pct", "beta_estimated_pct", "lag", "r2",
+                                 "up_beta_pct", "down_beta_pct", "decay_assumed_pct", "decay_estimated_pct",
+                                 "runoff_per_100bp_assumed_pct", "runoff_per_100bp_estimated_pct", "sensitivity_r2",
+                                 "core_pct", "flags"]] + [
+            [x["product"], x["months"], _pct((x["assumed"] or {}).get("beta")), _pct(x["beta"]["beta"]), x["beta"]["lag"],
+             x["beta"]["r2"], _pct(x["beta"]["up_beta"]), _pct(x["beta"]["down_beta"]),
+             _pct((x["assumed"] or {}).get("runoff")), _pct(x["decay"]["decay"]) if x["decay"] else None,
+             _pct((x["assumed"] or {}).get("runoff_per_100bp")),
+             _pct(x["sensitivity"]["runoff_per_100bp"]) if x["sensitivity"] else None,
+             x["sensitivity"]["r2"] if x["sensitivity"] else None, _pct(x["core"]), "; ".join(x["flags"])]
+            for x in d["products"]]
     t = r.get("sensitivity")
     if t:
         out["Assumption tests"] = [["family", "variant", "nii_y1", "nii_decline_300_pct", "nev_decline_300_pct",

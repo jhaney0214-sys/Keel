@@ -7,6 +7,7 @@ invented; none describes a real institution.
 """
 
 import json
+import math
 import os
 import random
 import sys
@@ -351,6 +352,7 @@ def run():
     write_queries()
     write_proposals()
     print("%-14s %d rows of actuals" % ("mid-cu", write_actuals()))
+    print("%-14s %d months of product history, %d account-months" % (("mid-cu",) + write_deposit_history()))
     print("%-14s %d positions" % ("community-bank", write_bank()))
     print("%-14s %d positions, and its June run in history/" % ("backtest-cu", write_backtest()))
 
@@ -453,3 +455,102 @@ def write_backtest():
         w.writerow(["month", "line", "average_balance", "amount"])
         w.writerows(rows)
     return len(september)
+
+
+# --------------------------------------------------------------- deposit history
+
+#: The short market rate at month-ends ending 2026-06, in percent: near zero,
+#: the 2022-23 hikes, a plateau, then cuts. Linear between these points.
+MARKET_PATH = (("2021-07", 0.08), ("2022-03", 0.30), ("2023-07", 5.30), ("2024-08", 5.30), ("2025-06", 4.30),
+               ("2026-06", 4.00))
+#: The behaviour the synthetic members actually show, which the study should
+#: recover: (up beta, down beta, lag months, annual decay, runoff per 100bp of
+#: spread). Set a little away from the settings' assumptions on purpose, so a
+#: study has something to find.
+TRUE_DEPOSITS = {"regular_shares": (0.12, 0.10, 3, 0.11, 0.015), "share_drafts": (0.03, 0.03, 2, 0.13, 0.010),
+                 "money_market": (0.55, 0.75, 2, 0.28, 0.045), "ira_shares": (0.25, 0.25, 4, 0.07, 0.008)}
+
+
+def _month_add(label, n):
+    y, m = int(label[:4]), int(label[5:7]) + n
+    while m > 12:
+        y, m = y + 1, m - 12
+    while m < 1:
+        y, m = y - 1, m + 12
+    return "%04d-%02d" % (y, m)
+
+
+def _market():
+    points = [(int(l[:4]) * 12 + int(l[5:7]), r) for l, r in MARKET_PATH]
+    out = []
+    for i in range(points[0][0], points[-1][0] + 1):
+        for (a, ra), (b, rb) in zip(points, points[1:]):
+            if a <= i <= b:
+                out.append(("%04d-%02d" % ((i - 1) // 12, (i - 1) % 12 + 1), ra + (rb - ra) * (i - a) / float(b - a)))
+                break
+    return out
+
+
+def write_deposit_history(name="mid-cu", accounts_per_product=1200, account_months=36):
+    """Monthly product history (60 months) and three years of account balances."""
+    import csv
+    from keel.__main__ import load
+    folder = os.path.join(EXAMPLES, name)
+    positions, a, _, _ = load(folder)
+    market = _market()
+    rng = random.Random(77)
+    rows = []
+    for product, (up, down, lag, decay, sens) in TRUE_DEPOSITS.items():
+        book = [p for p in positions if p.product == product]
+        balance_now = sum(p.balance for p in book)
+        rate_now = sum(p.balance * p.rate for p in book) / balance_now * 100.0
+        n = len(market)
+        rates = [0.0] * n
+        for t in range(1, n):
+            source = max(0, t - lag)
+            change = market[source][1] - market[max(0, source - 1)][1]
+            rates[t] = rates[t - 1] + (up if change > 0 else down) * change + rng.gauss(0, 0.01)
+        shift = rate_now - rates[-1]
+        floor = 100 * a.products[product].rate_floor
+        rates = [max(floor, r + shift) for r in rates]
+        growth = [0.0] * n
+        for t in range(1, n):
+            spread = market[t][1] - rates[t]
+            growth[t] = 0.03 / 12 - sens * spread / 12.0 + rng.gauss(0, 0.004)
+        balances = [0.0] * n
+        balances[-1] = balance_now
+        for t in range(n - 1, 0, -1):
+            balances[t - 1] = balances[t] / math.exp(growth[t])
+        for t in range(n):
+            rows.append([market[t][0], product, round(balances[t], 2), round(rates[t], 3), round(market[t][1], 3)])
+    with open(os.path.join(folder, "deposit_history.csv"), "w", encoding="utf-8", newline="") as handle:
+        w = csv.writer(handle)
+        w.writerow(["month", "product", "balance", "rate", "market_rate"])
+        w.writerows(rows)
+    # Accounts: a cohort open in the first month, each closing or drawing
+    # down so the cohort's balance decays at the true rate, plus new accounts.
+    labels = [m for m, _ in market][-(account_months + 1):]
+    account_rows = []
+    for product, (_, _, _, decay, _) in TRUE_DEPOSITS.items():
+        monthly_keep = (1.0 - decay) ** (1.0 / 12.0)
+        close = 1.0 - monthly_keep ** 0.5            # half the runoff is closures ...
+        draw = 1.0 - monthly_keep / (1.0 - close)    # ... and half is balances drawn down
+        accounts = {"%s-%05d" % (product[:3], i): rng.lognormvariate(8.5, 1.1) for i in range(accounts_per_product)}
+        opened = 0
+        for t, month in enumerate(labels):
+            if t:
+                for key in list(accounts):
+                    if rng.random() < close:
+                        del accounts[key]
+                    else:
+                        accounts[key] *= (1.0 - draw) * math.exp(rng.gauss(0, 0.05) - 0.05 ** 2 / 2)
+                for _ in range(int(accounts_per_product * close * 1.1)):
+                    opened += 1
+                    accounts["%s-N%05d" % (product[:3], opened)] = rng.lognormvariate(8.2, 1.1)
+            for key, value in accounts.items():
+                account_rows.append([month, key, product, round(value, 2)])
+    with open(os.path.join(folder, "deposit_accounts.csv"), "w", encoding="utf-8", newline="") as handle:
+        w = csv.writer(handle)
+        w.writerow(["month", "account_id", "product", "balance"])
+        w.writerows(account_rows)
+    return len(rows), len(account_rows)

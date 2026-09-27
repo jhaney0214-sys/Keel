@@ -56,11 +56,24 @@ def _status(a, values):
     return out
 
 
-def run(positions, a):
-    """{"baseline": {...}, "rows": [{family, variant, products, values, status, moves}]}."""
+def run(positions, a, study=None):
+    """{"baseline": {...}, "rows": [{family, variant, products, values, status, moves}]}.
+    With `study` (deposits.recommended's {product: {field: percent}}), one
+    more row runs the model on the deposit study's estimates."""
     baseline = measure(positions, a)
     base_status = _status(a, baseline)
     rows = []
+    if study:
+        changed = dict(a.products)
+        for name, values in study.items():
+            if name in changed:
+                changed[name] = dataclasses.replace(changed[name], **{k: v / 100.0 for k, v in values.items()})
+        b = dataclasses.replace(a, products=changed)
+        values = measure(positions, b)
+        status = _status(b, values)
+        rows.append({"family": "Deposit study", "variant": "as estimated", "field": "study",
+                     "products": sorted(study), "values": values, "status": status,
+                     "flips": [k for k in KEYS if status[k] != base_status[k]]})
     for family, field, chosen, variants in FAMILIES:
         products = sorted({p.product for p in positions if chosen(p, a.products[p.product])})
         if not products:

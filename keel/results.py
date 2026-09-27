@@ -208,10 +208,13 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
         "rate_path": rate_path(a),
         "base_run": base, "book": positions, "budget": plan_budget, "variance": variance,
     }
-    from keel import history, sensitivity
+    from keel import deposits, history, sensitivity
+    result["deposits"] = deposits.study(folder, a) if folder else None
+    recommended = deposits.recommended(result["deposits"]) if result["deposits"] else None
+    result["deposit_recommended"] = recommended
     if assumption_tests is None:
         assumption_tests = folder is not None
-    result["sensitivity"] = sensitivity.run(positions, a) if assumption_tests else None
+    result["sensitivity"] = sensitivity.run(positions, a, recommended) if assumption_tests else None
     result["snapshot"] = history.snapshot(result)
     result["history"] = history.review(folder, result["snapshot"]) if folder else None
     result["peers"] = None
@@ -238,6 +241,21 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
                 "; ".join("%s %s" % (x["family"].lower(), x["variant"]) for x in flips))
                 if flips else " No variant changes a limit's status.")
             result["findings"].insert(2, ("Assumptions", text))
+    d = result["deposits"]
+    if d and d["products"]:
+        flagged = [f for row in d["products"] for f in ("%s: %s" % (row["product"].replace("_", " "), x)
+                                                         for x in row["flags"])]
+        text = "The deposit study estimates betas and balance sensitivity for %d share products from %d months of " \
+               "history%s. " % (len(d["products"]), max(r["months"] for r in d["products"]),
+                                 " and decay from account balances" if d["has_accounts"] else "")
+        text += ("It differs materially from the assumptions on: %s." % "; ".join(flagged)) if flagged else \
+            "It supports the assumptions in use."
+        study_row = next((x for x in (result["sensitivity"] or {}).get("rows", []) if x["family"] == "Deposit study"), None)
+        if study_row:
+            base = result["sensitivity"]["baseline"]
+            text += " On the study's values the worst NEV decline would be %.1f%% (%.1f%% as assumed)." % (
+                study_row["values"]["nev_decline_300"], base["nev_decline_300"])
+        result["findings"].insert(3, ("Deposit study", text))
     h = result["history"]
     if h and h["backtest"]:
         b = h["backtest"]
