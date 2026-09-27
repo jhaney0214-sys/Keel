@@ -99,6 +99,16 @@ def sheets(r):
     for i, q in enumerate(r.get("queries") or [], 1):
         title = re.sub(r"[\[\]:*?/\\]", "-", "Q%d %s" % (i, q["name"]))[:31]   # characters Excel refuses
         out[title] = [q["columns"]] + q["rows"] + ([q["total"]] if q["total"] else [])
+    cap = r.get("capital")
+    if cap:
+        out["Capital"] = ([["measure", "value_pct", "well_capitalized_pct", "adequate_pct", "status", "note"]]
+                          + [[x["measure"], _pct(x["value"]), _pct(x["well"]), _pct(x["adequate"]), x["status"],
+                              x["note"]] for x in cap["rows"]]
+                          + [[], ["securities at market", "today", "after +300bp"],
+                             ["book", cap["lens"]["book"], cap["lens"]["book"]],
+                             ["market", cap["lens"]["market"], cap["lens"]["market_300"]],
+                             ["net worth ratio with it (pct)", _pct(cap["lens"]["ratio_now"]),
+                              _pct(cap["lens"]["ratio_300"])]])
     c = r.get("credit")
     if c:
         out["Credit scenarios"] = [["scenario", "multiplier", "months", "reversion_months", "losses_y1", "losses_y2",

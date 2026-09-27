@@ -212,7 +212,8 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
         "rate_path": rate_path(a),
         "base_run": base, "book": positions, "budget": plan_budget, "variance": variance,
     }
-    from keel import credit, deposits, history, sensitivity
+    from keel import capital, credit, deposits, history, sensitivity
+    result["capital"] = capital.measures_for(positions, a, securities)
     result["credit"] = credit.run(positions, a, a.credit_scenarios, base)
     conc = liquidity_module.concentration(positions, folder, imported)
     lines, lendable = liquidity_module.collateral(positions, a)
@@ -369,6 +370,18 @@ def findings(r):
         text += " Year-one NII is %s %s than if rates stayed where they are." % (
             _money(r["nii_base"]["y1"] - flat["y1"]), "more" if r["nii_base"]["y1"] >= flat["y1"] else "less")
     out.append(("The plan", text))
+    cap = r.get("capital")
+    if cap:
+        weakest = [x for x in cap["rows"] if x["status"] != "within" and "if elected" not in x["measure"]]
+        lens = cap["lens"]
+        text = ("%s." % ("Well capitalized on every measure" if not weakest else "Below well capitalized on: %s" % "; ".join(
+            "%s %.2f%%" % (x["measure"].lower(), 100 * x["value"]) for x in weakest)))
+        if lens["book"]:
+            text += (" With the securities at market, net worth would be %.2f%% of assets today and %.2f%% after a "
+                     "+300bp shock (unrealized %s of %s)." % (
+                         100 * lens["ratio_now"], 100 * lens["ratio_300"],
+                         "loss" if lens["unrealized_300"] < 0 else "gain", _money(lens["unrealized_300"])))
+        out.append(("Capital", text))
     c = r.get("credit")
     if c and len(c["scenarios"]) > 1:
         worst = max(c["scenarios"], key=lambda s: s["multiplier"])

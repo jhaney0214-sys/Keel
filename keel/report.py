@@ -865,6 +865,38 @@ def credit_section(r):
     return "".join(out)
 
 
+def capital_section(r):
+    cap = r.get("capital")
+    if not cap:
+        return ""
+    out = ["<section id='capital'><h2>Capital</h2>"]
+    if cap["category"]:
+        out.append("<p>Prompt-corrective-action category: <b>%s</b>%s.</p>" % (
+            esc(cap["category"]), " (a complex credit union, over $500 million)" if cap["complex"] else ""))
+    rows = []
+    for x in cap["rows"]:
+        rows.append([esc(x["measure"]), pct(x["value"]), pct(x["well"], 1),
+                     "" if x["adequate"] is None else pct(x["adequate"], 1),
+                     chip(x["status"], {"within": "Well capitalized", "near": "Adequate",
+                                        "breach": "Below"}[x["status"]]), esc(x["note"])])
+    out.append(table(["Measure", "Today", "Well capitalized at", "Adequately at", "", "Note"], rows, numeric_from=1))
+    lens = cap["lens"]
+    if lens["book"]:
+        out.append("<h3>With the securities at market ($000)</h3>")
+        out.append(table(["", "Today", "After +300bp"], [
+            ["Securities at book", k(lens["book"]), k(lens["book"])],
+            ["At market", k(lens["market"]), k(lens["market_300"])],
+            ["Unrealized gain (loss)", k(lens["unrealized"]), k(lens["unrealized_300"])],
+            ["Net worth ratio with it", pct(lens["ratio_now"]), pct(lens["ratio_300"])]]))
+        out.append("<p class='muted'>Regulatory capital ignores unrealized losses on securities until they are "
+                   "sold; a stress that forces a sale does not. The shock moves the whole curve 300bp on the "
+                   "analysis date, the same shock as the NEV test.</p>")
+    out.append("<p class='muted'>Risk-weighted assets $%sK, from each product's <code>risk_weight</code>. Estimates "
+               "on product-level weights, without deductions, off-balance-sheet exposures or past-due and "
+               "concentration adjustments: not a call-report calculation.</p></section>" % k(cap["rwa"]))
+    return "".join(out)
+
+
 def reconciliation(r):
     rows = [[esc(c.name), "<span class='%s'>%s</span>" % (
         "pass" if c.passed else "fail", "&#10003; Pass" if c.passed else "&#10005; FAIL"), esc(c.detail)]
@@ -917,7 +949,7 @@ def page(r, downloads=()):
     nav = [("summary", "Summary"), ("limits", "Limits"), ("rate-risk", "Rate risk")]
     if r.get("deposits"):
         nav.append(("deposits", "Deposits"))
-    nav += [("plan", "Plan"), ("liquidity", "Liquidity")]
+    nav += [("plan", "Plan"), ("liquidity", "Liquidity"), ("capital", "Capital")]
     if r["securities"] or r["imported"] is not None:
         nav.append(("portfolios", "Portfolios"))
     nav += [("profitability", "Profitability"), ("budget", "Budget")]
@@ -939,7 +971,8 @@ def page(r, downloads=()):
             "".join("<a href='%s'>%s</a>" % (href, esc(text)) for href, text in downloads)),
         "<nav aria-label='Sections'><div class='inner'>%s</div></nav><main>" % "".join(
             "<a href='#%s'>%s</a>" % (i, esc(t)) for i, t in nav),
-        summary(r), rate_risk(r), deposits_section(r), plan(r), liquidity(r), portfolios(r), profitability_section(r),
+        summary(r), rate_risk(r), deposits_section(r), plan(r), liquidity(r), capital_section(r), portfolios(r),
+        profitability_section(r),
         budget_section(r),
         adhoc_section(r), history_section(r), peers_section(r), reconciliation(r), assumptions_section(r),
         "</main><footer>Generated %s by Keel. Every figure is computed from the input files; none is typed. Keel "

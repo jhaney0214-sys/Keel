@@ -326,6 +326,21 @@ and +/-300bp, and its NII decline, NEV decline and NEV ratio are read
 against the same limits as the report. Decay changes NEV but not the plan's
 NII, because the plan holds share balances to their growth path.
 
+## Regulatory capital
+
+`keel/capital.py`. Credit unions: the net worth ratio (equity / assets) sets
+the category at 7, 6, 4 and 2 percent (12 CFR 702.102); over $500 million,
+also the risk-based capital ratio, (equity + the allowance up to 1.25% of
+risk-weighted assets) / risk-weighted assets, well capitalized at 10%, and
+the CCULR at 9% if elected. Banks: Tier 1 leverage (equity / assets, 5%),
+CET1 and Tier 1 risk-based (equity / risk-weighted assets, 6.5% and 8%),
+total risk-based (with the allowance as above, 10%) and the CBLR (9%, under
+$10 billion, if elected). Risk-weighted assets are product balances times
+`risk_weight`; there are no deductions, off-balance-sheet items or past-due
+and concentration adjustments. The market view adds (market - book) of the
+securities to equity and to assets, with market value on today's curve and
+after a +300bp instantaneous shock.
+
 ## Credit scenarios and CECL
 
 `keel/credit.py`. A credit scenario's factor is its multiplier for its

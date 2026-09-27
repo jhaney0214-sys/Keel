@@ -36,8 +36,11 @@ of them from it:
   funded at a rate matched to its own cash flows; each product's spread,
   fees, servicing cost, expected loss, allocated capital, ROA and RAROC;
   treasury's margin from the rate mismatch; all of it adding back to NII.
-- **Product capital:** risk-weighted assets by product and a risk-based
-  capital ratio, with each product's weight set in the settings.
+- **Capital:** credit unions' net worth categories, risk-based capital ratio
+  and CCULR for those over $500 million; banks' Tier 1 leverage, CET1, Tier 1
+  and total risk-based ratios and CBLR; and net worth with the securities at
+  market, today and after +300bp. Risk-weighted assets by product, with each
+  product's weight set in the settings.
 - **RAROC pricing calculator:** a loan's or deposit's life economics at a
   rate, the rate that earns the hurdle, and the break-even rate.
 - **New-product spread analysis:** a proposed product's unit economics, its
@@ -324,7 +327,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 131 tests
+python -m unittest discover -s tests      # 135 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,
