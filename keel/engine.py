@@ -22,8 +22,9 @@ and `reconcile` checks that it did.
 """
 
 import dataclasses
+import math
 
-from keel.model import Position
+from keel.model import Index, Position
 
 CASH = "cash"
 
@@ -69,8 +70,21 @@ class Stepper(object):
         return self.curve_rate(month, self.a.short_tenor)
 
     def index_rate(self, index, month):
-        tenor, spread = self.a.indexes[index]
-        return self.curve_rate(month, tenor) + spread
+        """The index in `month`: today's level (the main curve at its tenor
+        plus its spread, or its own curve), moved by beta times the main
+        curve's move and by the scenario's basis for it, floored as the
+        curve is."""
+        idx = self.a.indexes[index]
+        if not isinstance(idx, Index):
+            idx = Index(*idx)                   # (tenor, spread), as older code and tests give it
+        tenor = idx.tenor
+        move = idx.beta * self.shift_bp(month, tenor) + self.s.basis_bp(index, month)
+        if idx.curve is not None:
+            value, spread = idx.curve.rate(tenor) + move / 100.0, 0.0
+        else:
+            value, spread = self.a.curve.rate(tenor) + move / 100.0, idx.spread
+        floor = self.s.floor
+        return (value if floor is None else max(floor, value)) / 100.0 + spread
 
     def reprice(self, p, month):
         product = self.a.products[p.product]
@@ -91,9 +105,11 @@ class Stepper(object):
                 # month on; a scenario moves it by the product's beta times the
                 # scenario's shift (the base case's own path is in the budget).
                 rate, _ = planned
-                p.rate = max(product.rate_floor, rate + product.beta * self.s.shift_bp(month, self.a.short_tenor) / 10000.0)
+                p.rate = max(product.rate_floor, rate + product.beta * self.s.shift_bp(month, self.a.short_tenor) / 10000.0
+                             + self.s.basis_bp("shares", month) / 10000.0)
             else:
-                p.rate = max(product.rate_floor, start + product.beta * (self.short_rate(month) - self.base_short))
+                p.rate = max(product.rate_floor, start + product.beta * (self.short_rate(month) - self.base_short)
+                             + self.s.basis_bp("shares", month) / 10000.0)
 
     def planned_rate(self, product, month):
         """The latest budgeted rate for `product` at or before `month`, as (rate, its month), or None."""
@@ -107,6 +123,24 @@ class Stepper(object):
             if plan[m].get("rate") is not None:
                 found = (plan[m]["rate"], m)
         return found
+
+    def cpr(self, p, product, month, shift):
+        """This month's prepayment speed for a level or balloon loan."""
+        if product.refi_incentive:
+            market = self.curve_rate(month, product.new_term or 120) + product.spread
+            incentive = 100.0 * (p.rate - market)             # points the loan is over today's rate
+            if incentive > 0.5:
+                p.in_money_months += 1
+            refi = product.cpr_per_100bp * incentive
+            if incentive > 0 and product.burnout:
+                refi *= math.exp(-product.burnout * p.in_money_months / 12.0)
+            cpr = product.cpr + refi
+        else:
+            cpr = product.cpr - product.cpr_per_100bp * shift
+        cpr = min(max(cpr, product.cpr_floor), product.cpr_cap)
+        if product.seasoning_months and p.loan_age is not None:
+            cpr *= min(1.0, (p.loan_age + p.age + 1) / float(product.seasoning_months))
+        return cpr
 
     def step(self, p, month):
         """Advance `p` by one month (month 1 is the first after the analysis date)."""
@@ -129,8 +163,7 @@ class Stepper(object):
             else:
                 payment = balance * r / (1.0 - (1.0 + r) ** -n) if r > 0 else balance / n
                 scheduled = min(balance, max(0.0, payment - interest))
-            cpr = min(max(product.cpr - product.cpr_per_100bp * shift, product.cpr_floor), product.cpr_cap)
-            prepaid = (balance - scheduled) * monthly(cpr)
+            prepaid = (balance - scheduled) * monthly(self.cpr(p, product, month, shift))
         elif p.amortization == "balloon":
             # Paid as if over `amort_months`, and due in full at maturity.
             if p.term_months <= 1:
@@ -139,8 +172,7 @@ class Stepper(object):
                 n, r = max(p.amort_months, 1), p.rate / 12.0
                 payment = balance * r / (1.0 - (1.0 + r) ** -n) if r > 0 else balance / n
                 scheduled = min(balance, max(0.0, payment - interest))
-            cpr = min(max(product.cpr - product.cpr_per_100bp * shift, product.cpr_floor), product.cpr_cap)
-            prepaid = (balance - scheduled) * monthly(cpr)
+            prepaid = (balance - scheduled) * monthly(self.cpr(p, product, month, shift))
         elif p.amortization == "bullet":
             if p.term_months <= 1:
                 scheduled = balance
@@ -383,7 +415,7 @@ def _originate(template, spec, amount, month, stepper):
         rate=0.0, rate_type=template.rate_type, index=template.index, margin=template.margin,
         reset_months=template.reset_months, term_months=spec.new_term,
         amortization=spec.new_amortization or template.amortization,
-        floor=template.floor, cap=template.cap, new_business=True,
+        floor=template.floor, cap=template.cap, new_business=True, loan_age=0,
         amort_months=spec.new_amort_term, call_months=spec.new_call_months)
     if p.amortization == "balloon" and p.amort_months <= p.term_months:
         p.amort_months = max(p.term_months * 2, 300)

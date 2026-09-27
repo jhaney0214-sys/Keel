@@ -47,6 +47,21 @@ bounded by `cpr_floor` and `cpr_cap`: rates falling 100bp adds
 `cpr_per_100bp`. Decay moves the other way: `runoff_per_100bp` is added per
 100bp *rise*.
 
+**The prepayment model**, per product, when set. With `refi_incentive`, the
+speed follows each loan's own incentive instead of the curve's move: CPR =
+`cpr` + `cpr_per_100bp` × (the loan's rate − the product's rate today, in
+points), where the product's rate today is the scenario curve at `new_term`
+plus `spread`, what the borrower could refinance into. A 3% mortgage with
+the market at 6.5% is locked in at the floor whatever the shock; a 7.5%
+mortgage speeds up as soon as rates fall. **Burnout:** a loan more than 50bp
+in the money counts its months there, and the incentive's extra speed is
+multiplied by exp(−`burnout` × months ÷ 12): the borrowers who could
+refinance and would have already have. **Seasoning:** with
+`seasoning_months`, CPR is scaled by (loan age ÷ `seasoning_months`) until
+it reaches full speed; the importer gives each pool its balance-weighted age
+from the origination dates, new business starts at zero, and a position
+with no age is taken as seasoned.
+
 **Net charge-offs** (assets): the remaining balance × annual charge-off ÷ 12,
 written off with no cash received.
 
@@ -149,6 +164,17 @@ flattener, a steepener and a short-end +200bp). In a shaped scenario each
 rate moves by the shift at its own tenor. Prepayment responds to the ten-year
 point, which mortgage rates follow, and share decay to the short rate, which
 members compare. Rates are floored at `rate_floor`.
+
+**Indexes and basis.** An index is the main curve at its tenor plus its
+spread, or its own curve (the Indexes sheet's `curve` column, "1:7.5,
+12:7.25"), and it moves by its `beta` (percent, default 100) times the main
+curve's move at its tenor. A scenario can carry a `basis` ("PRIME:-50,
+shares:25"): an extra move for a named index, or for every administered
+share rate, reached over the scenario's ramp. The report's basis-risk table
+(`keel/basis.py`) moves each index that variable positions reset to by
+±50bp against the curve, and share rates by ±25bp, one at a time with
+everything else on the base plan, and gives the change in year-one and
+year-two NII.
 
 ## Instruments
 
@@ -565,8 +591,9 @@ fails, so the checks can't pass vacuously.
   risk-based measure, not a call-report calculation.
 - The budget is monthly for one year; later years are annual in the plan.
 
-- One curve drives everything: no separate funding, mortgage or deposit
-  curves, and no basis risk between indexes beyond fixed spreads.
+- One main curve: indexes can have their own curves and betas and basis
+  scenarios move them apart, but funding, mortgage and deposit rates are
+  still read off the main curve plus each product's spread.
 - Curve shapes are interpolated moves at chosen tenors, not a fitted
   key-rate or principal-component model.
 - No option-adjusted valuation: prepayment and decay respond to rate levels
@@ -576,7 +603,8 @@ fails, so the checks can't pass vacuously.
 - In the stress, certificates are not renewed during the stress months, and
   no extra runoff is applied to certificates that have not yet matured.
 - Fee income is flat, and operating expense grows once a year.
-- No CECL. Credit losses are a flat charge-off rate by product.
+- CECL is a remaining-life estimate on product charge-off rates, not a
+  vintage, PD/LGD or discounted-cash-flow model.
 - Pooling approximates each pool's cash flows with its weighted rate and
   term. Very wide pools would blur amortization, which is why the bands are
   narrow.

@@ -72,6 +72,11 @@ def sheets(r):
          x.expected_loss, x.tax, x.net, x.rwa, x.capital, _pct(x.raroc)] for x in P["lines"]] + [
         [], ["treasury margin", "", "", "", "", P["treasury"]]] + [
         [key, "", "", "", "", value] for key, value in P["totals"].items()]
+    if r.get("basis"):
+        out["Basis risk"] = [["rate", "move_bp", "exposure_assets", "exposure_liabilities", "y1_nii", "y1_change",
+                              "y1_change_pct", "y2_change"]] + [
+            [x["test"], x["move_bp"], x["exposure_assets"], x["exposure_liabilities"], x["y1"], x["y1_change"],
+             _pct(x["y1_change_pct"]), x["y2_change"]] for x in r["basis"]]
     dp = r.get("deposit_pricing")
     if dp and dp["products"]:
         out["Deposit pricing"] = [["product", "balance", "rate_pct", "runoff_per_100bp_pct", "source", "move_bp",

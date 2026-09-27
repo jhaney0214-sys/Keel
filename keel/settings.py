@@ -113,6 +113,18 @@ def _shape(text, where):
     return out
 
 
+def _basis(text, where):
+    out = {}
+    for part in str(text).replace(";", ",").split(","):
+        if part.strip():
+            try:
+                key, bp = part.split(":")
+                out[key.strip()] = float(bp)
+            except ValueError:
+                raise InputError("%s: basis %r should read like 'PRIME:-50, shares:25'" % (where, text))
+    return out
+
+
 def from_workbook(book, path="settings workbook"):
     missing = [s for s in ("Settings", "Curve", "Products") if s not in book]
     if missing:
@@ -145,8 +157,13 @@ def from_workbook(book, path="settings workbook"):
     for row in xlsx.table(book.get("Indexes", [])):
         name = xlsx.as_text(row.get("index"))
         if name:
-            raw["indexes"][name] = {"tenor_months": _number(row.get("tenor_months"), "int", "%s, Indexes" % path),
-                                    "spread": _number(row.get("spread"), "float", "%s, Indexes" % path) or 0.0}
+            where = "%s, Indexes, %s" % (path, name)
+            raw["indexes"][name] = {"tenor_months": _number(row.get("tenor_months"), "int", where),
+                                    "spread": _number(row.get("spread"), "float", where) or 0.0}
+            if row.get("beta") not in (None, ""):
+                raw["indexes"][name]["beta"] = _number(row["beta"], "float", where)
+            if row.get("curve") not in (None, ""):
+                raw["indexes"][name]["curve"] = {t: bp for t, bp in _shape(row["curve"], where).items()}
     raw["products"] = {}
     types = {f.name: f.type for f in dataclasses.fields(Product)}
     products = xlsx.table(book["Products"])
@@ -190,6 +207,8 @@ def from_workbook(book, path="settings workbook"):
             spec["ramp_months"] = _number(row["ramp_months"], "int", where)
         if row.get("shape") not in (None, ""):
             spec["shape"] = _shape(row["shape"], where)
+        if row.get("basis") not in (None, ""):
+            spec["basis"] = _basis(row["basis"], where)
         raw["extra_scenarios"].append(spec)
     raw["liquidity"] = {"contingent": [
         {"name": xlsx.as_text(r.get("name")), "capacity": _number(r.get("capacity"), "float", "%s, Contingent" % path),
@@ -243,15 +262,19 @@ def to_workbook(raw):
         if value is not None:
             settings.append([key, value, notes[key]])
     curve = [["tenor_months", "rate"]] + [[int(t), r] for t, r in sorted(raw["curve"].items(), key=lambda x: float(x[0]))]
-    indexes = [["index", "tenor_months", "spread"]] + [
-        [n, v["tenor_months"], v.get("spread", 0.0)] for n, v in raw.get("indexes", {}).items()]
+    indexes = [["index", "tenor_months", "spread", "beta", "curve"]] + [
+        [n, v["tenor_months"], v.get("spread", 0.0), v.get("beta"),
+         ", ".join("%s:%g" % (t, r) for t, r in sorted(v["curve"].items(), key=lambda x: float(x[0])))
+         if v.get("curve") else None] for n, v in raw.get("indexes", {}).items()]
     used = [f for f in PRODUCT_FIELDS if any(f in spec for spec in raw["products"].values())]
     products = [["product"] + used] + [[name] + [spec.get(f) for f in used]
                                        for name, spec in raw["products"].items()]
-    scenarios = [["name", "shock_bp", "ramp_months", "shape"]] + [
+    scenarios = [["name", "shock_bp", "ramp_months", "shape", "basis"]] + [
         [s["name"], s.get("shock_bp"), s.get("ramp_months"),
          ", ".join("%s:%g" % (t, bp) for t, bp in sorted(s["shape"].items(), key=lambda x: float(x[0])))
-         if s.get("shape") else None] for s in raw.get("extra_scenarios", [])]
+         if s.get("shape") else None,
+         ", ".join("%s:%g" % (k, bp) for k, bp in s["basis"].items()) if s.get("basis") else None]
+        for s in raw.get("extra_scenarios", [])]
     contingent = [["name", "capacity", "secured"]] + [[c["name"], c["capacity"], bool(c.get("secured"))]
                                                        for c in liquidity.get("contingent", [])]
     from keel.model import LIMITS

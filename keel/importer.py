@@ -117,10 +117,14 @@ class Pool(object):
 
     def __init__(self, key, template):
         self.key, self.template = key, template
-        self.balance = self.rate_x = self.margin_x = self.term_x = self.amort_x = 0.0
+        self.balance = self.rate_x = self.margin_x = self.term_x = self.amort_x = self.age_x = 0.0
         self.count = 0
+        self.aged = False
 
-    def add(self, balance, rate, term, margin=0.0, amort=0):
+    def add(self, balance, rate, term, margin=0.0, amort=0, age=None):
+        if age is not None:
+            self.age_x += balance * age
+            self.aged = True
         self.balance += balance
         self.rate_x += balance * rate
         self.margin_x += balance * margin
@@ -138,7 +142,8 @@ class Pool(object):
             rate_type=t["rate_type"], index=t.get("index", ""), margin=self.margin_x / b / 100.0,
             reset_months=t.get("reset_months", 0), term_months=int(round(self.term_x / b)),
             amortization=t["amortization"], floor=t.get("floor"), cap=t.get("cap"),
-            amort_months=int(round(self.amort_x / b)), next_reset_months=t.get("next_reset_months", 0))
+            amort_months=int(round(self.amort_x / b)), next_reset_months=t.get("next_reset_months", 0),
+            loan_age=int(round(self.age_x / b)) if self.aged else None)
 
 
 def _account(kind, account_id, product, key, balance, rate, row, **extra):
@@ -205,7 +210,9 @@ def import_folder(folder, as_of):
         pool = pools.get(key)
         if pool is None:
             pool = pools[key] = Pool(key, template)
-        pool.add(balance, rate, term, _num(r["margin"]), amort)
+        opened = _date(r.get("origination_date") or "")
+        pool.add(balance, rate, term, _num(r["margin"]), amort,
+                 max(0, months_between(opened, as_of)) if opened else None)
         detail.append(_account("loan", r["loan_id"], product, ("loan", key), balance, rate, r,
                                  nonaccrual=nonaccrual, days_delinquent=int(_num(r.get("days_delinquent"))),
                                  term_months=term))

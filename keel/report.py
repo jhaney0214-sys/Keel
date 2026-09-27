@@ -249,9 +249,26 @@ def rate_risk(r):
                  "everything else by its principal cash flows, including prepayment and share decay. Not "
                  "rate-sensitive: assets %s, liabilities %s.</p>" % (k(r["insensitive"]["asset"]),
                                                                       k(r["insensitive"]["liability"])))
+    parts.append(basis_section(r))
     parts.append(assumptions_test_section(r))
     parts.append("</section>")
     return "".join(parts)
+
+
+def basis_section(r):
+    rows = r.get("basis") or []
+    if not rows:
+        return ""
+    body = [[esc(x["test"]), "%+dbp" % x["move_bp"], k(x["exposure_assets"]), k(x["exposure_liabilities"]),
+             k(x["y1_change"]), signed(x["y1_change_pct"]),
+             "" if x["y2_change"] is None else k(x["y2_change"])] for x in rows]
+    return ("<h3 id='basis'>Basis risk ($000)</h3>" + table(
+        ["Rate moved against the curve", "Move", "Assets on it", "Liabilities on it", "Year 1 NII change",
+         "Year 1 vs base", "Year 2 NII change"], body) +
+        "<p class='muted'>Each row moves one rate alone and holds the curve and every other rate where the base plan "
+        "has them: an index that variable-rate positions reset to, or the administered share rates (as if a "
+        "competitor forced them). What reprices depends on reset dates, so a move can take a year to show. Add a "
+        "<code>basis</code> to a scenario in the settings to combine a spread move with a curve move.</p>")
 
 
 def _short_band(band):

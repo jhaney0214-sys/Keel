@@ -10,8 +10,9 @@ of them from it:
 
 - **Interest-rate risk:** NII by scenario for years 1 and 2; NEV under
   parallel shocks of ±100 to ±300bp and under curve-shape scenarios; the
-  **NCUA NEV Supervisory Test** as NCUA runs it (below); and the repricing
-  gap.
+  **NCUA NEV Supervisory Test** as NCUA runs it (below); the repricing
+  gap; basis risk (each index, and share rates, moved against the curve);
+  and a prepayment model with refinancing incentive, seasoning and burnout.
 - **The plan:** a five-year income statement and balance sheet, under the
   base case and under every scenario, and under credit scenarios (moderate
   and severe recessions) with a CECL remaining-life estimate of the
@@ -350,6 +351,21 @@ branch (a member's branch is the one holding most of their balance). Every
 account and member is queryable: `keel query <folder> --table accounts` or
 `--table members`.
 
+## Basis risk and prepayment
+
+Indexes can run on their own curves (the Indexes sheet's `curve` column)
+and follow the main curve by a `beta`; a scenario on the Scenarios sheet can
+carry a `basis` such as `PRIME:-75, shares:40` (large-cu has one: +200bp
+with prime lagging and share rates leading). The Interest-rate risk section
+adds a basis-risk table: each index moved ±50bp against the curve and share
+rates ±25bp, alone, with the change in NII.
+
+For mortgages and other prepayable loans, set `refi_incentive` on a product
+and its speed follows each loan's own rate against what the product lends
+at today, instead of the curve's move; `burnout` takes that extra speed
+away the longer loans sit in the money, and `seasoning_months` ramps new
+loans up. large-cu's mortgages run on it.
+
 ## Budget and actuals
 
 The Budget section is the base plan's first year by month. Put
@@ -421,7 +437,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 172 tests
+python -m unittest discover -s tests      # 184 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,

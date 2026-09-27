@@ -134,7 +134,7 @@ class SettingsWorkbook(unittest.TestCase):
         raw = read_json(os.path.join(SAMPLE, "assumptions.json"))
         raw["extra_scenarios"] = [{"name": "flattener", "shape": {"1": 200, "24": 100, "120": 0}}]
         sheets = settings.to_workbook(raw)
-        self.assertIn(["flattener", None, None, "1:200, 24:100, 120:0"], sheets["Scenarios"])
+        self.assertIn(["flattener", None, None, "1:200, 24:100, 120:0", None], sheets["Scenarios"])
         path = os.path.join(self.tmp, "a.xlsx")
         xlsx.write_workbook(path, sheets)
         self.assertEqual(settings.load(path)["extra_scenarios"][0]["shape"], {"1": 200.0, "24": 100.0, "120": 0.0})

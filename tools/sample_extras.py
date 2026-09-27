@@ -320,6 +320,21 @@ def budget_month_before(label):
     return "%04d-%02d" % (y, m)
 
 
+# --------------------------------------------------------------- prepayment and basis
+
+def prepayment_and_basis(name, spec):
+    """large-cu, mortgage-heavy, runs the prepayment model: speeds from each
+    pool's own refinancing incentive, new loans seasoning over 30 months,
+    and burnout; and a scenario where prime lags a +200bp rise and share
+    rates overshoot it."""
+    if name != "large-cu":
+        return
+    for product in ("first_mortgage", "first_mortgage_15", "arm_mortgage"):
+        spec["products"][product].update({"refi_incentive": True, "seasoning_months": 30, "burnout": 25.0})
+    spec["extra_scenarios"].append({"name": "+200, prime lags, shares lead", "shock_bp": 200,
+                                    "basis": {"PRIME": -75, "shares": 40}})
+
+
 # --------------------------------------------------------------- members
 
 BRANCHES = (("Main Street", 0.38), ("Northside", 0.24), ("Eastgate", 0.18), ("Riverside", 0.12), ("Online", 0.08))

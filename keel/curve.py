@@ -40,8 +40,13 @@ class Scenario(object):
     flat beyond them: {"1": 200, "120": 0} is a flattener that lifts the short
     end 200bp and leaves ten years unchanged. `shock_bp` is then ignored."""
 
-    def __init__(self, name, shock_bp=0.0, ramp_months=0, floor=0.0, shape=None, use_path=True):
+    def __init__(self, name, shock_bp=0.0, ramp_months=0, floor=0.0, shape=None, use_path=True, basis=None):
         self.name = name
+        # Basis: extra moves, in bp, for named indexes (and "shares", for
+        # administered share rates) on top of the curve's own move, reached
+        # over the same ramp. {"PRIME": -50} holds prime 50bp under where the
+        # curve would take it: the spread between them is the risk.
+        self.basis = dict(basis or {})
         self.shock_bp = float(shock_bp)
         self.ramp_months = int(ramp_months)
         self.floor = floor
@@ -64,6 +69,13 @@ class Scenario(object):
         scenario) in `month`."""
         full = self.shape.rate(120 if tenor is None else tenor) if self.shape else self.shock_bp
         if self.ramp_months <= 0:
+            return full
+        return full * min(1.0, float(month) / self.ramp_months)
+
+    def basis_bp(self, key, month):
+        """The scenario's extra move for an index (or "shares") in `month`."""
+        full = self.basis.get(key, 0.0)
+        if not full or self.ramp_months <= 0:
             return full
         return full * min(1.0, float(month) / self.ramp_months)
 

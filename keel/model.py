@@ -50,6 +50,8 @@ class Position:
     next_reset_months: int = 0  # variable: months to the first reset (default reset_months)
     age: int = 0                # months since the analysis date
     new_business: bool = False
+    loan_age: int = None        # months since origination at the analysis date; None: fully seasoned
+    in_money_months: int = 0    # months spent worth refinancing, for burnout
 
     def copy(self):
         return dataclasses.replace(self)
@@ -80,7 +82,8 @@ def read_positions(path):
             amortization=row["amortization"].strip().lower(),
             floor=_pct(row.get("floor")), cap=_pct(row.get("cap")),
             amort_months=_int(row.get("amort_months")), call_months=_int(row.get("call_months")),
-            next_reset_months=_int(row.get("next_reset_months")))
+            next_reset_months=_int(row.get("next_reset_months")),
+            loan_age=None if not (row.get("loan_age") or "").strip() else _int(row.get("loan_age")))
         if p.id in seen:
             raise InputError("%s: id %r appears twice" % (where, p.id))
         seen.add(p.id)
@@ -134,6 +137,39 @@ class Product:
     origination_cost: float = 0.0 # one-time cost of new business, share of the amount
     collateral_value: float = 0.0 # share of the balance a secured lender (FHLB) lends against
     account_cost: float = 0.0     # dollars a year per account, for account profitability
+    # The prepayment model. With refi_incentive, CPR is cpr plus
+    # cpr_per_100bp for each point the loan's own rate is over what the
+    # product lends at today (the curve at new_term plus spread), instead of
+    # moving with the curve alone; burnout takes that extra away the longer
+    # a loan has sat worth refinancing; seasoning ramps new loans up.
+    refi_incentive: bool = False
+    burnout: float = 0.0          # share of the in-the-money speed lost per year spent in the money
+    seasoning_months: int = 0     # CPR reaches full speed at this loan age (0: no ramp)
+
+
+@dataclasses.dataclass
+class Index:
+    """A rate that variable positions reset to. By default the main curve at
+    `tenor` plus `spread`; with its own `curve`, that curve today (and the
+    spread is ignored). Either way it moves by `beta` times the main curve's
+    move at the tenor, plus any basis the scenario gives it."""
+    tenor: int
+    spread: float = 0.0           # decimal
+    beta: float = 1.0             # decimal
+    curve: object = None          # its own Curve, or None
+
+    def __iter__(self):
+        yield self.tenor
+        yield self.spread
+
+
+def _index(name, v):
+    try:
+        own = v.get("curve")
+        return Index(int(v["tenor_months"]), _decimal(v.get("spread", 0)), _decimal(v.get("beta", 100)),
+                     Curve(own) if own else None)
+    except (KeyError, TypeError, ValueError) as error:
+        raise InputError("assumptions: index %s: %s" % (name, error))
 
 
 def _decimal(value):
@@ -148,7 +184,7 @@ DOLLAR_FIELDS = ("account_cost",)
 PERCENT_FIELDS = ("cpr", "cpr_per_100bp", "cpr_floor", "cpr_cap", "runoff", "runoff_per_100bp",
                   "beta", "rate_floor", "spread", "discount_spread", "growth", "charge_off",
                   "haircut", "stress_runoff", "call_threshold", "risk_weight", "servicing_cost",
-                  "fee_yield", "origination_cost", "collateral_value")
+                  "fee_yield", "origination_cost", "collateral_value", "burnout")
 
 
 #: Policy limits: (key, kind, default, label). "max" limits cap a measure,
@@ -176,7 +212,7 @@ WARNING_BAND = 10.0   # percent of a limit counted as "near" it
 class Assumptions:
     as_of: str
     curve: Curve
-    indexes: dict               # index name -> (tenor months, spread decimal)
+    indexes: dict               # index name -> Index
     products: dict              # product name -> Product
     horizon_months: int = 60
     nev_max_months: int = 360
@@ -288,12 +324,12 @@ def parse_assumptions(raw):
                 raise InputError("assumptions: product %s has an unknown field %r" % (name, key))
             values[key] = _decimal(value) if key in PERCENT_FIELDS else float(value or 0)                 if key in DOLLAR_FIELDS else value
         products[name] = Product(name=name, **values)
-    indexes = {k: (int(v["tenor_months"]), _decimal(v.get("spread", 0))) for k, v in raw["indexes"].items()}
+    indexes = {k: _index(k, v) for k, v in raw["indexes"].items()}
     floor = raw.get("rate_floor", 0.0)
     scenarios = standard_scenarios(floor)
     for spec in raw.get("extra_scenarios", []):
         scenarios.append(Scenario(spec["name"], spec.get("shock_bp", 0), spec.get("ramp_months", 0), floor,
-                                  spec.get("shape")))
+                                  spec.get("shape"), basis=spec.get("basis")))
     liquidity = raw.get("liquidity", {})
     institution = raw.get("institution", "credit_union")
     if institution not in INSTITUTIONS:

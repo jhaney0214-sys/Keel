@@ -216,8 +216,9 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
         "rate_path": rate_path(a),
         "base_run": base, "book": positions, "budget": plan_budget, "variance": variance,
     }
-    from keel import accounts, capital, credit, deposits, history, sensitivity
+    from keel import accounts, basis, capital, credit, deposits, history, sensitivity
     result["capital"] = capital.measures_for(positions, a, securities)
+    result["basis"] = basis.run(positions, a, base)
     result["accounts"] = accounts.run(positions, a, imported.accounts, lines, prof_totals)         if imported is not None and imported.accounts else None
     if result["accounts"]:
         checks.append(result["accounts"]["check"])
@@ -415,6 +416,12 @@ def findings(r):
                         100 * raroc, 100 * a.hurdle_rate,
                         "; below it: %s" % ", ".join(below) if below else "; every product clears it",
                         "earns" if P["totals"]["treasury"] >= 0 else "costs", _money(P["totals"]["treasury"]))))
+    worst = min(r.get("basis") or [], key=lambda x: x["y1_change"], default=None)
+    if worst and worst["y1_change"] < 0:
+        out.append(("Basis risk", "The costliest single spread move tested is %s %+dbp against the curve: "
+                    "year-one net interest income %s %s (%.1f%%), with every other rate where the base plan has it." % (
+                        worst["test"], worst["move_bp"], "falls" if worst["y1_change"] < 0 else "rises",
+                        _money(abs(worst["y1_change"])), 100 * worst["y1_change_pct"])))
     acc = r.get("accounts")
     if acc and acc["totals"]["members"]:
         t = acc["totals"]
