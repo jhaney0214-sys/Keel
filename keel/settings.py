@@ -46,10 +46,11 @@ SETTINGS = (  # key, type, note for the workbook
     ("hurdle_rate", "float", "Return on allocated capital that pricing aims for (RAROC hurdle), percent."),
 )
 PRODUCT_FIELDS = [f.name for f in dataclasses.fields(Product) if f.name != "name"]
-SHEETS = ("Settings", "Curve", "Indexes", "Products", "Scenarios", "Contingent", "Limits", "Stresses", "Forecast",
-          "Drivers", "Noninterest", "Notes")
+SHEETS = ("Settings", "Curve", "Indexes", "Products", "Scenarios", "Contingent", "Limits", "CreditScenarios",
+          "Stresses", "Forecast", "Drivers", "Noninterest", "Notes")
 #: Sheets read as plain rows into a list of dicts: (sheet, raw key, columns).
-ROW_SHEETS = (("Stresses", "liquidity_stresses", ("name", "runoff_multiplier", "haircut_add", "contingent_available",
+ROW_SHEETS = (("CreditScenarios", "credit_scenarios", ("name", "multiplier", "months", "reversion_months")),
+              ("Stresses", "liquidity_stresses", ("name", "runoff_multiplier", "haircut_add", "contingent_available",
                                                 "months", "uninsured_runoff")),
               ("Forecast", "rate_forecast", ("month", "tenor_months", "rate")),
               ("Drivers", "drivers", ("product", "month", "volume", "balance", "rate")),

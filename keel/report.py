@@ -303,6 +303,7 @@ def plan(r):
              ["Total liabilities"] + [k(x["liabilities"]) for x in p["totals"]],
              ["Net worth"] + [k(x["equity"]) for x in p["totals"]]]
     parts.append(table(["Line"] + years, rows, total_last=True))
+    parts.append(credit_section(r))
     parts.append("<h3>The plan under each scenario ($000)</h3>")
     parts.append(table(["Scenario", "Year 1 net income", "Net worth ratio, month 12", "Peak overnight borrowing"],
                        [[esc(x["scenario"]), k(x["net_income_y1"]), pct(x["net_worth_m12"]), k(x["peak_overnight"])]
@@ -816,6 +817,51 @@ def liquidity_concentration(r):
                    "That is a floor: share accounts are only reported in balance tiers here. Add "
                    "<code>depositors.csv</code> for the full measure.</p>" % (
                        k(c["uninsured"]), pct(c["uninsured_share"], 1), chip(limit.status)))
+    return "".join(out)
+
+
+def credit_section(r):
+    c = r.get("credit")
+    if not c:
+        return ""
+    nw_limit = next(x for x in r["limits"] if x.key == "net_worth_min")
+    out = ["<h3 id='credit'>Credit losses under stress</h3>"]
+    body = []
+    for s in c["scenarios"]:
+        status = results_module.evaluate("net_worth_min", "min", nw_limit.limit,
+                                         100 * min(s["lowest_net_worth"], s["net_worth_after_build"]),
+                                         r["assumptions"].warning_band)
+        body.append([esc(s["name"]), "x%g" % s["multiplier"],
+                     "" if not s["months"] else "%d, then %d back" % (s["months"], s["reversion_months"]),
+                     k(s["losses_y1"]), k(s["losses_y2"]), k(s["net_income_2y"]), k(s["allowance_build"]),
+                     pct(s["net_worth_after_build"]), pct(s["lowest_net_worth"]), chip(status)])
+    out.append(table(["Scenario", "Charge-offs", "Months", "Losses year 1 ($000)", "Year 2", "Net income, 2 years",
+                      "CECL build at once", "Net worth after the build", "Lowest net worth, plan", "Against the limit"],
+                     body))
+    out.append("<p class='muted'>Each scenario multiplies every loan product's charge-off rate for its stressed "
+               "months and phases it back to normal over the reversion months, on the base rate path. The CECL "
+               "build is the extra lifetime loss the scenario's forecast adds to the allowance on day one; it comes "
+               "out of net worth before any loan defaults. Scenarios come from the settings' CreditScenarios sheet, "
+               "or these three defaults.</p>")
+    out.append("<h3>CECL allowance: remaining-life estimate ($000)</h3>")
+    rows = [[label(x["product"]), k(x["balance"]), pct(x["rate"]), "%.1f" % x["wal_years"], k(x["lifetime"]),
+             pct(x["lifetime"] / x["balance"] if x["balance"] else 0.0)] for x in c["products"]]
+    total_loans = sum(x["balance"] for x in c["products"])
+    rows.append(["Total", k(total_loans), "", "", k(c["estimate"]),
+                 pct(c["estimate"] / total_loans if total_loans else 0.0)])
+    out.append(table(["Product", "Balance", "Annual loss rate", "Remaining life (years)", "Lifetime loss",
+                      "Of balance"], rows, total_last=True))
+    if c["booked"]:
+        gap = c["booked"] - c["estimate"]
+        out.append("<p>The allowance on the books is <b>$%sK</b>, %s the estimate by $%sK (%s of it).</p>" % (
+            k(c["booked"]), "above" if gap >= 0 else "below", k(abs(gap)),
+            pct(c["booked"] / c["estimate"] if c["estimate"] else 0.0, 0)))
+    else:
+        out.append("<p class='muted'>No allowance is on the books in this data (no negative contra-asset "
+                   "position), so there is nothing to compare the estimate with.</p>")
+    out.append("<p class='muted'>Remaining-life method: each position's own runoff, with prepayment, and its "
+               "product's charge-off rate applied month by month. A single-factor, product-level check on the "
+               "booked allowance, without vintage curves, PD/LGD or a qualitative adjustment.</p>")
     return "".join(out)
 
 

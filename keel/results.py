@@ -212,7 +212,8 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
         "rate_path": rate_path(a),
         "base_run": base, "book": positions, "budget": plan_budget, "variance": variance,
     }
-    from keel import deposits, history, sensitivity
+    from keel import credit, deposits, history, sensitivity
+    result["credit"] = credit.run(positions, a, a.credit_scenarios, base)
     conc = liquidity_module.concentration(positions, folder, imported)
     lines, lendable = liquidity_module.collateral(positions, a)
     result["liquidity"]["collateral"] = {"lines": lines, "lendable": lendable,
@@ -368,6 +369,18 @@ def findings(r):
         text += " Year-one NII is %s %s than if rates stayed where they are." % (
             _money(r["nii_base"]["y1"] - flat["y1"]), "more" if r["nii_base"]["y1"] >= flat["y1"] else "less")
     out.append(("The plan", text))
+    c = r.get("credit")
+    if c and len(c["scenarios"]) > 1:
+        worst = max(c["scenarios"], key=lambda s: s["multiplier"])
+        base_ni = c["scenarios"][0]["net_income_2y"]
+        text = ("Under the %s (charge-offs x%g for %d months), two-year net income goes from %s to %s%s and the net "
+                "worth ratio's low is %.1f%%. A CECL remaining-life estimate puts the allowance at %s against %s "
+                "booked; that scenario would add %s to it at once, taking net worth to %.1f%% of assets." % (
+                    worst["name"].lower(), worst["multiplier"], worst["months"], _money(base_ni),
+                    ("minus " if worst["net_income_2y"] < 0 else "") + _money(worst["net_income_2y"]),
+                    "", 100 * worst["lowest_net_worth"], _money(c["estimate"]), _money(c["booked"]),
+                    _money(worst["allowance_build"]), 100 * worst["net_worth_after_build"]))
+        out.append(("Credit", text))
     a = r["assumptions"]
     P = r["profitability"]
     loans = [x for x in P["lines"] if x.side == "asset" and x.capital > 0 and x.interest > 0]

@@ -201,6 +201,7 @@ class Assumptions:
     noninterest: list = dataclasses.field(default_factory=list)   # [NonInterest]
     secured: frozenset = frozenset()   # contingent sources capped by pledgeable collateral
     stresses: list = dataclasses.field(default_factory=list)      # [liquidity.Stress]
+    credit_scenarios: list = dataclasses.field(default_factory=list)   # [credit.CreditScenario]
 
 
 @dataclasses.dataclass
@@ -332,6 +333,7 @@ def parse_assumptions(raw):
         contingent=[(c["name"], float(c["capacity"])) for c in liquidity.get("contingent", [])],
         secured=frozenset(c["name"] for c in liquidity.get("contingent", []) if _truthy(c.get("secured"))),
         stresses=_stresses(raw.get("liquidity_stresses") or liquidity.get("stresses")),
+        credit_scenarios=_credit(raw.get("credit_scenarios")),
         scenarios=scenarios, notes=raw.get("notes", {}),
         limits=_limits(raw.get("limits", {})),
         warning_band=float(raw.get("limits", {}).get("warning_band", WARNING_BAND)))
@@ -339,6 +341,11 @@ def parse_assumptions(raw):
 
 def _truthy(value):
     return str(value).strip().lower() in ("true", "yes", "y", "1", "x") if value not in (None, "") else False
+
+
+def _credit(raw_list):
+    from keel import credit
+    return credit.scenarios(raw_list)
 
 
 def _stresses(raw_list):

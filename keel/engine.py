@@ -44,9 +44,10 @@ class Flow:
 class Stepper(object):
     """Moves positions forward one month under one scenario."""
 
-    def __init__(self, assumptions, scenario, path=None, drivers=None):
+    def __init__(self, assumptions, scenario, path=None, drivers=None, credit=None):
         self.a = assumptions
         self.s = scenario
+        self.credit = credit            # month -> multiplier on charge-off rates, or None
         self.path = path if (path is not None and getattr(scenario, "use_path", True)) else None
         self.drivers = drivers or {}
         self.base_short = assumptions.curve.rate(assumptions.short_tenor) / 100.0
@@ -156,7 +157,8 @@ class Stepper(object):
         elif p.amortization == "nonmaturity":
             decayed = balance * monthly(product.runoff + product.runoff_per_100bp * short_shift)
         remaining = balance - scheduled - prepaid - decayed
-        chargeoff = remaining * product.charge_off / 12.0 if p.side == "asset" else 0.0
+        rate = product.charge_off * (self.credit(month) if self.credit else 1.0)
+        chargeoff = remaining * rate / 12.0 if p.side == "asset" else 0.0
         p.balance = remaining - chargeoff
         if p.term_months:
             p.term_months -= 1
@@ -172,14 +174,14 @@ def earning(p):
 
 # --------------------------------------------------------------- runoff
 
-def runoff(positions, assumptions, scenario, months=None):
+def runoff(positions, assumptions, scenario, months=None, credit=None):
     """{position id: [Flow per month]} for today's positions, no new business.
 
     Stops at `months` (default the NEV horizon). Whatever balance a
     non-maturity position still holds then is paid as a final principal flow,
     so every position's principal and charge-offs sum to its balance."""
     months = months or assumptions.nev_max_months
-    stepper = Stepper(assumptions, scenario)
+    stepper = Stepper(assumptions, scenario, credit=credit)
     out = {}
     for original in positions:
         if not earning(original):
@@ -237,7 +239,7 @@ def opening(positions):
     return cash, assets, liabilities, assets - liabilities
 
 
-def going_concern(positions, assumptions, scenario, stress=False, months=None):
+def going_concern(positions, assumptions, scenario, stress=False, months=None, credit=None):
     """[Month] for `months` (default the horizon), with new business to plan.
 
     With `stress`, the liquidity stress replaces the plan for liabilities:
@@ -248,7 +250,7 @@ def going_concern(positions, assumptions, scenario, stress=False, months=None):
     exists to measure."""
     a = assumptions
     months = months or a.horizon_months
-    stepper = Stepper(a, scenario, path=a.path, drivers=a.drivers)
+    stepper = Stepper(a, scenario, path=a.path, drivers=a.drivers, credit=credit)
     book = [p.copy() for p in positions if p.product != CASH]
     cash, _, _, equity = opening(positions)
     overnight = 0.0

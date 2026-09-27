@@ -99,6 +99,18 @@ def sheets(r):
     for i, q in enumerate(r.get("queries") or [], 1):
         title = re.sub(r"[\[\]:*?/\\]", "-", "Q%d %s" % (i, q["name"]))[:31]   # characters Excel refuses
         out[title] = [q["columns"]] + q["rows"] + ([q["total"]] if q["total"] else [])
+    c = r.get("credit")
+    if c:
+        out["Credit scenarios"] = [["scenario", "multiplier", "months", "reversion_months", "losses_y1", "losses_y2",
+                                    "net_income_2y", "lifetime_loss", "allowance_build", "net_worth_after_build_pct",
+                                    "lowest_net_worth_pct"]] + [
+            [s["name"], s["multiplier"], s["months"], s["reversion_months"], s["losses_y1"], s["losses_y2"],
+             s["net_income_2y"], s["lifetime"], s["allowance_build"], _pct(s["net_worth_after_build"]),
+             _pct(s["lowest_net_worth"])] for s in c["scenarios"]]
+        out["CECL estimate"] = ([["product", "balance", "annual_loss_rate_pct", "remaining_life_years", "lifetime_loss"]]
+                                + [[x["product"], x["balance"], _pct(x["rate"]), x["wal_years"], x["lifetime"]]
+                                   for x in c["products"]]
+                                + [[], ["estimate", c["estimate"]], ["booked allowance", c["booked"]]])
     L = r["liquidity"]
     if L.get("scenarios"):
         out["Stress scenarios"] = [["scenario", "runoff_multiplier", "haircut_add_pts", "contingent_available_pct",

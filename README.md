@@ -13,7 +13,9 @@ of them from it:
   **NCUA NEV Supervisory Test** as NCUA runs it (below); and the repricing
   gap.
 - **The plan:** a five-year income statement and balance sheet, under the
-  base case and under every scenario.
+  base case and under every scenario, and under credit scenarios (moderate
+  and severe recessions) with a CECL remaining-life estimate of the
+  allowance set against the one on the books.
 - **Liquidity:** a first-year survival horizon under a share-runoff stress,
   the plan's own funding need, the contractual gap, ratios, and which tier of
   12 CFR 741.12 applies; graded stress scenarios (severe, systemic, a run on
@@ -214,6 +216,16 @@ Noninterest sheet itemizes fee income and operating expense with growth and
 a start month. Between and after drivers, products grow at their planned
 rate from where the last driver left them.
 
+## Credit stress and CECL
+
+The plan runs under credit scenarios that multiply every loan product's
+charge-off rate for a stressed period and phase it back (defaults: x2 for 12
+months, x3.5 for 18; or the CreditScenarios sheet: name, multiplier, months,
+reversion_months). The report shows losses, two-year net income, the net
+worth ratio's low, and the CECL allowance build each forecast forces at
+once, next to a remaining-life estimate of the allowance compared with the
+booked one (any negative contra-asset position).
+
 ## Liquidity scenarios, collateral and concentration
 
 - **Scenarios:** the Stresses sheet (or `liquidity.stresses` in JSON) lists
@@ -312,7 +324,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 127 tests
+python -m unittest discover -s tests      # 131 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,

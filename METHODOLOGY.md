@@ -326,6 +326,25 @@ and +/-300bp, and its NII decline, NEV decline and NEV ratio are read
 against the same limits as the report. Decay changes NEV but not the plan's
 NII, because the plan holds share balances to their growth path.
 
+## Credit scenarios and CECL
+
+`keel/credit.py`. A credit scenario's factor is its multiplier for its
+stressed months, then falls linearly to one over its reversion months; the
+monthly charge-off on every asset position is its product's annual
+`charge_off` times that factor, divided by twelve. Each scenario runs the
+going-concern plan on the base rate path.
+
+The CECL estimate is the remaining-life method: each loan position's runoff
+(its amortization, prepayment and maturity) with the monthly charge-off
+applied to the balance still outstanding, summed over its life; a maturing
+balance repays before that month's loss. Under a scenario the same sum with
+the scenario's factor gives the allowance that forecast implies; the
+difference from the baseline is the provision a turn in the forecast forces
+at once, and the net worth ratio after it is (equity - build) / (assets -
+build). The booked allowance is the sum of negative-balance asset positions.
+Single-factor and product-level: no vintages, PD/LGD, discounting or
+qualitative adjustment.
+
 ## Liquidity scenarios, collateral and concentration
 
 `keel/liquidity.py`. A scenario multiplies every share product's
