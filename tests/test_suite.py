@@ -269,6 +269,12 @@ class Serve(unittest.TestCase):
                                            "amortization": "level", "launch_balance": "1000000"}).encode()
             self.assertIn("The institution, with and without it",
                           urllib.request.urlopen(base + "/newproduct", body).read().decode("utf-8"))
+            self.assertIn("Sell (deepest loss first", get("/trade"))
+            sid = server.securities()[0]["id"]
+            product = server.securities()[0]["product"]
+            body = urllib.parse.urlencode({"name": "Swap", "sell_" + sid: "1", "product": product, "yield": "5",
+                                           "term_months": "36"}).encode()
+            self.assertIn("Yield pickup", urllib.request.urlopen(base + "/trade", body).read().decode("utf-8"))
         finally:
             httpd.shutdown()
             httpd.server_close()

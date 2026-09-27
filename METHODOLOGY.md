@@ -293,6 +293,25 @@ rate, costs at its own rates, origination spread over the average life),
 and the whole book's key measures and limits with and without it. The
 institution runs carry the product's interest only, not its servicing cost.
 
+## Investment purchases and swaps
+
+`keel/swap.py` settles the trade on the analysis date through cash. A sale's
+proceeds are its market value (the position's cash flows discounted on
+today's curve plus the product's discount spread, as the portfolio page
+values it) or the given price; proceeds less book is realized at once, so
+equity moves by exactly that. A purchase is a new fixed-rate position at its
+yield, or at the curve at its term plus the given spread. The yield pickup
+is income on what is bought, less income given up, plus or minus the cash
+difference at the short rate, all on today's yields.
+
+The earn-back runs the book with and without the trade through the plan in
+the base case and at +/-300bp: the plan reinvests cash and runoff at each
+scenario's rates, so the extra NII includes that reinvestment and a faster
+or slower prepayment of what was bought. It is the first month the
+cumulative difference in NII reaches the realized loss, or "not within the
+plan". The plan books the loss against net worth on the analysis date, not
+through year-one net income; the page states year-one net income with it.
+
 ## Budget and variance
 
 `keel/budget.py`. The budget is months 1 to 12 of the base run: each

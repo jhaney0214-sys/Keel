@@ -166,6 +166,34 @@ def write_proposals():
             json.dump(spec, handle, indent=2)
 
 
+def write_trades(name="mid-cu"):
+    """Two trades for mid-cu: a loss swap out of its two worst-underwater
+    low-yield securities into current-coupon MBS, and a Treasury purchase
+    from cash."""
+    from keel import measures
+    from keel.__main__ import load
+    positions, a, _, _ = load(os.path.join(EXAMPLES, name))
+    liquid = {k for k, spec in a.products.items() if spec.liquid}
+    worst = sorted(measures.security_analytics(positions, a, liquid), key=lambda x: x["gain"])[:2]
+    folder = os.path.join(EXAMPLES, "trades")
+    os.makedirs(folder, exist_ok=True)
+    trades = {
+        "loss-swap.json": {
+            "name": "Sell the two deepest-underwater low-yielders, buy current-coupon MBS",
+            "sell": [x["id"] for x in worst],
+            "buy": [{"name": "FNMA 30-year 5.5% pool", "product": "agency_mbs", "amount": "proceeds",
+                     "spread": 0.90, "term_months": 360, "amortization": "level"}]},
+        "buy-treasuries.json": {
+            "name": "Put $10 million of excess cash into 2-year Treasuries",
+            "buy": [{"name": "UST 2-year", "product": "treasuries", "amount": 10000000, "yield": 3.65,
+                     "term_months": 24, "amortization": "bullet"}]},
+    }
+    for file, spec in trades.items():
+        with open(os.path.join(folder, file), "w", encoding="utf-8") as handle:
+            json.dump(spec, handle, indent=2)
+    return len(trades)
+
+
 def write_actuals(name="mid-cu", months=3):
     """Three months of actuals near the budget, with the kind of misses a real
     quarter has: used autos ahead on volume, certificates repricing faster,
@@ -518,6 +546,7 @@ def run():
     write_queries()
     write_proposals()
     print("%-14s %d trial balance rows" % ("mid-cu", write_actuals()))
+    print("%-14s %d trades in examples/trades/" % ("mid-cu", write_trades()))
     print("%-14s %d months of product history, %d account-months" % (("mid-cu",) + write_deposit_history()))
     print("%-14s %d members" % ("mid-cu", write_depositors("mid-cu", 46000, 81)))
     print("%-14s %d members" % ("large-cu", write_depositors("large-cu", 150000, 83, sigma=1.6)))

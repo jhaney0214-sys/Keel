@@ -38,6 +38,10 @@ def main(argv=None):
     newp.add_argument("folder")
     newp.add_argument("proposal", help="a proposal JSON file")
     newp.add_argument("--out", default=None, help="default: <folder>/report/newproduct-<file name>.html")
+    swp = sub.add_parser("swap", help="an investment purchase or swap: pickup, loss, earn-back, effect on the book")
+    swp.add_argument("folder")
+    swp.add_argument("trade", help="a trade JSON file")
+    swp.add_argument("--out", default=None, help="default: <folder>/report/swap-<file name>.html")
     qry = sub.add_parser("query", help="ad hoc report: group, filter and total any table")
     qry.add_argument("folder")
     qry.add_argument("spec", nargs="?", help="a saved query JSON file (or use the options)")
@@ -71,9 +75,9 @@ def main(argv=None):
             return 2
         print("%s -> %s" % (args.source, args.target))
         return 0
-    if args.command in ("price", "newproduct", "query", "callreport"):
+    if args.command in ("price", "newproduct", "swap", "query", "callreport"):
         try:
-            return {"price": run_price, "newproduct": run_newproduct, "query": run_query,
+            return {"price": run_price, "newproduct": run_newproduct, "swap": run_swap, "query": run_query,
                     "callreport": run_callreport}[args.command](args)
         except model.InputError as error:
             print("input error: %s" % error, file=sys.stderr)
@@ -199,6 +203,31 @@ def run_price(args):
                         servicing_cost=pct(args.servicing_cost), fee_yield=pct(args.fee_yield),
                         origination_cost=pct(args.origination_cost), risk_weight=pct(args.risk_weight))
     print(pricing.text(pricing.quote(deal, assumptions)))
+    return 0
+
+
+def run_swap(args):
+    import json
+    from keel import swap, terms
+    positions, assumptions, _, _ = load(args.folder)
+    with open(args.trade, encoding="utf-8") as handle:
+        spec = json.load(handle)
+    result = swap.analyse(positions, assumptions, spec)
+    stem = os.path.splitext(os.path.basename(args.trade))[0]
+    out = args.out or os.path.join(args.folder, "report", "swap-%s.html" % stem)
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    with open(out, "w", encoding="utf-8") as handle:
+        handle.write(terms.translate(swap.page(result, report.STYLE), assumptions))
+    t, s = result["trade"], result["summary"]
+    print("trade -> %s" % out)
+    if t["sold"]:
+        print("realized %s %s; yield pickup %s a year; earn-back %s (base), %s (+300), %s (-300)" % (
+            "loss" if t["realized"] < 0 else "gain", "{:,.0f}".format(abs(t["realized"])),
+            "{:,.0f}".format(s["pickup"]), *(swap._months(result["runs"][n]["earn_back"]) for n in swap.SCENARIOS)))
+    else:
+        print("bought %s from cash; pickup over the short rate %s a year; year-one NII change %s (base), %s (+300), "
+              "%s (-300)" % ("{:,.0f}".format(t["spent"]), "{:,.0f}".format(s["pickup"]),
+                             *("{:+,.0f}".format(result["runs"][n]["years"][0]["change"]) for n in swap.SCENARIOS)))
     return 0
 
 

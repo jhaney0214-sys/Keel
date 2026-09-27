@@ -48,6 +48,9 @@ of them from it:
   product's weight set in the settings.
 - **RAROC pricing calculator:** a loan's or deposit's life economics at a
   rate, the rate that earns the hurdle, and the break-even rate.
+- **Investment purchases and swaps:** the realized loss, the yield pickup,
+  the month the extra NII earns the loss back in the base case and at
+  +/-300bp, and the whole book with and without the trade.
 - **New-product spread analysis:** a proposed product's unit economics, its
   own path through the plan, and the whole book with and without it.
 - **Budget:** the first plan year by month and by product, and, given an
@@ -96,9 +99,10 @@ is written for the model validator.
 python tools/make_samples.py                 # three synthetic credit unions, in about two seconds
 python -m keel run examples/mid-cu           # -> examples/mid-cu/report/report.html
 python -m keel whatif examples/mid-cu examples/whatifs/fhlb-for-auto-growth.json
-python -m keel serve examples/mid-cu         # what-if, pricing, new product, explore: http://127.0.0.1:8750/
+python -m keel serve examples/mid-cu         # what-if, pricing, new product, trade, explore: http://127.0.0.1:8750/
 python -m keel price examples/mid-cu --product used_auto --amount 22000 --term 60 --rate 7.25
 python -m keel newproduct examples/mid-cu examples/proposals/green-auto.json
+python -m keel swap examples/mid-cu examples/trades/loss-swap.json
 python -m keel query examples/mid-cu --by product,rate_band --measure "sum balance" --measure "wavg spread balance"
 python -m keel run examples/community-bank   # the same, for a bank
 python -m keel run examples/backtest-cu      # a quarter on: trend, assumption changes and the back-test
@@ -287,6 +291,17 @@ FTP, its costs and RAROC, and how the products' spreads plus treasury's
 margin make up net interest income. `keel price` and the Pricing page price
 one deal; `keel newproduct` and the New product page analyse a launch.
 
+`keel swap <folder> <trade.json>` and the Trade page analyse an investment
+purchase or swap. A trade lists securities to `sell` (by security id, the
+whole position unless `share` says less, at Keel's market value unless
+`price` gives one in percent of book) and to `buy` (product, `amount` in
+dollars or `"proceeds"`, `yield` or `spread`, term, amortization). The page
+shows the realized gain or loss and its effect on net worth, the yield
+pickup, duration and average life before and after, the earn-back month in
+each scenario with the cumulative extra NII, and every measure and limit
+with and without the trade. `examples/trades/` has a loss swap and a
+Treasury purchase from cash.
+
 ## Accounts, members and branches
 
 With core files in `data/`, the report's Members section prices every loan
@@ -377,7 +392,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 156 tests
+python -m unittest discover -s tests      # 165 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,

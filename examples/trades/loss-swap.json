@@ -1,0 +1,17 @@
+{
+  "name": "Sell the two deepest-underwater low-yielders, buy current-coupon MBS",
+  "sell": [
+    "SYN00014",
+    "SYN00034"
+  ],
+  "buy": [
+    {
+      "name": "FNMA 30-year 5.5% pool",
+      "product": "agency_mbs",
+      "amount": "proceeds",
+      "spread": 0.9,
+      "term_months": 360,
+      "amortization": "level"
+    }
+  ]
+}

@@ -26,7 +26,7 @@ import re
 import threading
 import urllib.parse
 
-from keel import model, newproduct, pricing, query, terms, whatif
+from keel import measures, model, newproduct, pricing, query, swap, terms, whatif
 from keel.report import STYLE, chip, pct, table
 
 LEVERS = (  # (field, label, which products show it)
@@ -35,7 +35,8 @@ LEVERS = (  # (field, label, which products show it)
     ("runoff", "Decay or paydown, %/yr", lambda p: p.runoff),
     ("cpr", "Prepayment (CPR), %/yr", lambda p: p.cpr),
 )
-PAGES = (("/", "What-if"), ("/pricing", "Pricing"), ("/newproduct", "New product"), ("/explore", "Explore"))
+PAGES = (("/", "What-if"), ("/pricing", "Pricing"), ("/newproduct", "New product"), ("/trade", "Trade"),
+         ("/explore", "Explore"))
 PRICING_OVERRIDES = (("cpr", "Prepayment (CPR)"), ("runoff", "Decay"), ("charge_off", "Expected loss"),
                      ("servicing_cost", "Servicing cost"), ("fee_yield", "Fee yield"),
                      ("origination_cost", "Origination cost"), ("risk_weight", "Risk weight"))
@@ -132,6 +133,30 @@ def form_to_proposal(fields):
         if value is not None:
             proposal["behaviour"][key_] = value
     return proposal
+
+
+def form_to_trade(fields):
+    """The trade a form describes: every ticked security sold, at its price
+    if one is given, and one purchase if it has a product."""
+    spec = {"name": fields.get("name", "").strip() or "Investment trade", "sell": [], "buy": []}
+    for key in sorted(fields):
+        if key.startswith("sell_") and fields[key]:
+            sid = key[len("sell_"):]
+            sale = {"id": sid}
+            if _num(fields, "price_" + sid) is not None:
+                sale["price"] = _num(fields, "price_" + sid)
+            spec["sell"].append(sale)
+    if fields.get("product"):
+        buy = {"name": fields.get("buy_name", "").strip() or "purchase", "product": fields["product"],
+               "amount": _num(fields, "amount") if _num(fields, "amount") is not None else "proceeds",
+               "term_months": int(_num(fields, "term_months", 60)),
+               "amortization": fields.get("amortization") or "bullet"}
+        if _num(fields, "yield") is not None:
+            buy["yield"] = _num(fields, "yield")
+        elif _num(fields, "spread") is not None:
+            buy["spread"] = _num(fields, "spread")
+        spec["buy"].append(buy)
+    return spec
 
 
 def form_to_query(fields):
@@ -374,6 +399,69 @@ blank to solve for the rate that earns the hurdle.</p>""" % (
         return self.shell("New product: " + proposal["name"], "Spread analysis on the institution's own curve, "
                           "behaviour and costs, and the whole book run with and without it.", body, "/newproduct")
 
+    # ---------------------------------------------------------- trade
+
+    def securities(self):
+        if not hasattr(self, "_securities"):
+            liquid = {k for k, spec in self.assumptions.products.items() if spec.liquid}
+            self._securities = measures.security_analytics(self.positions, self.assumptions, liquid)
+        return self._securities
+
+    def trade_page(self, fields=None, message=""):
+        fields = fields or {}
+        v = lambda key, default="": html.escape(fields.get(key, default))  # noqa: E731
+        rows = []
+        for s in sorted(self.securities(), key=lambda s: s["gain"]):
+            sid = html.escape(s["id"])
+            rows.append("<tr><td><input type='checkbox' name='sell_%s' value='1'%s aria-label='sell %s'></td>"
+                        "<td>%s <span class='muted'>%s</span></td><td>%s</td><td class='num'>%s</td>"
+                        "<td class='num'>%s</td><td class='num'>%.2f%%</td><td class='num'>%.1f</td>"
+                        "<td><input name='price_%s' size='6' inputmode='decimal' value='%s' placeholder='model'></td>"
+                        "</tr>" % (sid, " checked" if fields.get("sell_" + s["id"]) else "", sid,
+                                   html.escape(s["name"]), sid, html.escape(s["product"].replace("_", " ")),
+                                   "{:,.0f}".format(s["book"] / 1000.0), "{:,.0f}".format(s["gain"] / 1000.0),
+                                   100 * s["yield"], s["duration"], sid, v("price_" + s["id"])))
+        liquid = sorted(k for k, spec in self.assumptions.products.items() if spec.liquid)
+        options = "".join("<option%s>%s</option>" % (" selected" if fields.get("product") == p else "", html.escape(p))
+                          for p in liquid)
+        body = """%s<form method='post' action='/trade'>
+<fieldset><legend>The trade</legend><label>Name <input name='name' size='40' value='%s'
+placeholder='Sell the 2021 callables, buy MBS'></label></fieldset>
+<h2>Sell (deepest loss first, $000)</h2><div class='wrap'><table><thead><tr><th>Sell</th><th>Security</th>
+<th>Product</th><th class='num'>Book</th><th class='num'>Gain (loss)</th><th class='num'>Book yield</th>
+<th class='num'>Duration</th><th>Price, %% of book</th></tr></thead><tbody>%s</tbody></table></div>
+<fieldset><legend>Buy</legend>
+<label>Name <input name='buy_name' size='28' value='%s' placeholder='FNMA 30-year 5.5%%'></label>
+<label>Product <select name='product'><option value=''>(nothing)</option>%s</select></label>
+<label>Amount <input name='amount' size='12' value='%s' placeholder='the proceeds'></label>
+<label>Yield, %% <input name='yield' size='6' value='%s'></label>
+<label>or spread to the curve, %% <input name='spread' size='6' value='%s'></label>
+<label>Term, months <input name='term_months' size='5' value='%s'></label>
+<label>Amortization <select name='amortization'><option>bullet</option><option%s>level</option>
+<option%s>callable</option></select></label>
+</fieldset><button type='submit'>Analyse</button></form>""" % (
+            self.message(message), v("name"), "".join(rows), v("buy_name"), options, v("amount"), v("yield"),
+            v("spread"), v("term_months", "60"), " selected" if fields.get("amortization") == "level" else "",
+            " selected" if fields.get("amortization") == "callable" else "")
+        return self.shell("Trade", "An investment purchase or swap: the loss, the pickup and how long it takes to "
+                          "earn back.", body, "/trade")
+
+    def trade_run(self, fields):
+        try:
+            spec = form_to_trade(fields)
+            with self.lock:
+                result = swap.analyse(self.positions, self.assumptions, spec)
+        except (model.InputError, ValueError, KeyError) as error:
+            return self.trade_page(fields, "That trade could not run: %s" % error)
+        page = swap.page(result, STYLE)
+        body = page[page.index("<main>") + 6:page.index("</main>")]
+        body += ("<h2>Keep this trade</h2><p class='muted'>Save as a .json file and run it again with "
+                 "<code>python -m keel swap %s trade.json</code>.</p><pre>%s</pre>"
+                 "<p><a class='button' href='/trade'>Another trade</a></p>" % (
+                     html.escape(self.folder), html.escape(json.dumps(spec, indent=2))))
+        return self.shell("Trade: " + spec["name"], "An investment purchase or swap on the institution's own "
+                          "curve and plan.", body, "/trade")
+
     # ---------------------------------------------------------- explore
 
     def explore_page(self, fields, message=""):
@@ -492,6 +580,8 @@ def handler_for(server):
                     return self._send(server.pricing_page(fields))
                 if url.path == "/newproduct":
                     return self._send(server.newproduct_page())
+                if url.path == "/trade":
+                    return self._send(server.trade_page())
                 if url.path == "/explore":
                     return self._send(server.explore_page(fields))
                 if url.path == "/explore.csv":
@@ -515,6 +605,8 @@ def handler_for(server):
                     return self._send(server.run(fields))
                 if self.path == "/newproduct":
                     return self._send(server.newproduct_run(fields))
+                if self.path == "/trade":
+                    return self._send(server.trade_run(fields))
                 if self.path == "/explore/save":
                     return self._send(server.explore_save(fields))
             except (model.InputError, ValueError) as error:

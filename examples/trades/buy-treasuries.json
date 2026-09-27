@@ -1,0 +1,13 @@
+{
+  "name": "Put $10 million of excess cash into 2-year Treasuries",
+  "buy": [
+    {
+      "name": "UST 2-year",
+      "product": "treasuries",
+      "amount": 10000000,
+      "yield": 3.65,
+      "term_months": 24,
+      "amortization": "bullet"
+    }
+  ]
+}
