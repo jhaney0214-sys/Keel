@@ -19,30 +19,35 @@ def main(argv=None):
     what.add_argument("folder")
     what.add_argument("spec", help="a what-if JSON file")
     what.add_argument("--out", default=None, help="default: <folder>/report/whatif-<file name>")
+    conv = sub.add_parser("convert", help="convert a settings file between .json and .xlsx")
+    conv.add_argument("source")
+    conv.add_argument("target")
     srv = sub.add_parser("serve", help="a what-if page in the browser, on this computer only")
     srv.add_argument("folder")
     srv.add_argument("--port", type=int, default=8750)
     args = parser.parse_args(argv)
     if args.command == "whatif":
         return run_whatif(args)
+    if args.command == "convert":
+        from keel import settings
+        try:
+            settings.convert(args.source, args.target)
+        except model.InputError as error:
+            print("input error: %s" % error, file=sys.stderr)
+            return 2
+        print("%s -> %s" % (args.source, args.target))
+        return 0
     if args.command == "serve":
         from keel import serve
         serve.serve(args.folder, args.port)
         return 0
 
     out = args.out or os.path.join(args.folder, "report")
-    imported = None
     try:
-        assumptions = model.read_assumptions(os.path.join(args.folder, "assumptions.json"))
-        if os.path.isdir(os.path.join(args.folder, "data")):
-            # Core-system files: import, pool and tie them to the GL first.
-            imported = importer.import_folder(args.folder, datetime.date.fromisoformat(assumptions.as_of))
-            positions = imported.positions
+        positions, assumptions, _, imported = load(args.folder)
+        if imported is not None:
             os.makedirs(out, exist_ok=True)
             importer.write_positions(positions, os.path.join(out, "positions_imported.csv"))
-        else:
-            positions = model.read_positions(os.path.join(args.folder, "positions.csv"))
-        model.check(positions, assumptions)
     except model.InputError as error:
         print("input error: %s" % error, file=sys.stderr)
         return 2
@@ -60,16 +65,16 @@ def main(argv=None):
 
 def load(folder, out=None):
     """(positions, assumptions, raw assumptions JSON, imported or None)."""
-    import json
-    with open(os.path.join(folder, "assumptions.json"), encoding="utf-8") as handle:
-        raw = json.load(handle)
+    from keel import settings, tables
+    raw = settings.load(settings.find(folder))
     assumptions = model.parse_assumptions(raw)
     imported = None
     if os.path.isdir(os.path.join(folder, "data")):
+        # Core-system files: import, pool and tie them to the GL first.
         imported = importer.import_folder(folder, datetime.date.fromisoformat(assumptions.as_of))
         positions = imported.positions
     else:
-        positions = model.read_positions(os.path.join(folder, "positions.csv"))
+        positions = model.read_positions(tables.find(folder, "positions"))
     model.check(positions, assumptions)
     return positions, assumptions, raw, imported
 

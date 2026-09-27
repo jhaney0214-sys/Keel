@@ -34,6 +34,8 @@ import os
 import random
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import sys  # noqa: E402
+sys.path.insert(0, ROOT)
 AS_OF = datetime.date(2026, 6, 30)
 
 # A synthetic rate history: what a product was priced at when it was made.
@@ -98,6 +100,7 @@ PROFILES = {
         "borrowings": [],
         "fee_income": 0.0110, "opex": 0.042,
         "note": "Just over NCUA's $50M line: consumer lending, very liquid, few mortgages.",
+        "formats": {"settings": "json", "data": "csv"},
     },
     "mid-cu": {
         "label": "Riverbend Federal Credit Union (synthetic)",
@@ -109,6 +112,7 @@ PROFILES = {
         "borrowings": [(0.015, 36, "FHLB"), (0.01, 18, "FHLB")],
         "fee_income": 0.0110, "opex": 0.036,
         "note": "Close to the system's own mix, with some commercial real estate.",
+        "formats": {"settings": "xlsx", "data": "csv"},
     },
     "large-cu": {
         "label": "Harbor State Credit Union (synthetic)",
@@ -120,6 +124,7 @@ PROFILES = {
         "borrowings": [(0.03, 12, "FHLB"), (0.025, 24, "FHLB"), (0.02, 48, "FHLB"), (0.01, 6, "CORPORATE")],
         "fee_income": 0.0090, "opex": 0.029,
         "note": "Mortgage-heavy and certificate-funded, with FHLB borrowing: the shape the NEV test bites.",
+        "formats": {"settings": "xlsx", "data": "xlsx"},
     },
 }
 
@@ -383,8 +388,19 @@ class Generator(object):
             "gl": {"cash": "1000", "fixed_assets": "1400", "ncusif": "1500", "other_assets": "1600",
                    "allowance": "1290", "other_liabilities": "2100"},
         }
-        with open(os.path.join(self.data, "product_map.json"), "w", encoding="utf-8") as handle:
-            json.dump(mapping, handle, indent=2)
+        for stale in ("product_map.json", "product_map.xlsx"):
+            if os.path.isfile(os.path.join(self.data, stale)):
+                os.remove(os.path.join(self.data, stale))
+        if self.p["formats"]["settings"] == "xlsx":
+            from keel import xlsx
+            sheets = {}
+            for section, codes in mapping.items():
+                head = ["key", "account"] if section == "gl" else ["code", "product"]
+                sheets[section] = [head] + [[k, v] for k, v in codes.items()]
+            xlsx.write_workbook(os.path.join(self.data, "product_map.xlsx"), sheets)
+        else:
+            with open(os.path.join(self.data, "product_map.json"), "w", encoding="utf-8") as handle:
+                json.dump(mapping, handle, indent=2)
 
     def assumptions(self, assets):
         p = self.p
@@ -415,11 +431,29 @@ class Generator(object):
                 {"name": "Central Liquidity Facility (through a corporate credit union)",
                  "capacity": round(assets * 0.04, -3)}]},
         }
-        with open(os.path.join(self.dir, "assumptions.json"), "w", encoding="utf-8") as handle:
-            json.dump(spec, handle, indent=2)
+        for stale in ("assumptions.json", "assumptions.xlsx"):
+            if os.path.isfile(os.path.join(self.dir, stale)):
+                os.remove(os.path.join(self.dir, stale))
+        if self.p["formats"]["settings"] == "xlsx":
+            from keel import settings, xlsx
+            xlsx.write_workbook(os.path.join(self.dir, "assumptions.xlsx"), settings.to_workbook(spec))
+        else:
+            with open(os.path.join(self.dir, "assumptions.json"), "w", encoding="utf-8") as handle:
+                json.dump(spec, handle, indent=2)
 
     def write_csv(self, name, rows, fields=None):
+        """A data table in this credit union's data format: CSV, or a workbook."""
         fields = fields or list(dict.fromkeys(k for r in rows for k in r))
+        for stale in (".csv", ".xlsx"):
+            path = os.path.join(self.data, os.path.splitext(name)[0] + stale)
+            if os.path.isfile(path):
+                os.remove(path)
+        if self.p["formats"]["data"] == "xlsx":
+            from keel import xlsx
+            sheet = [fields] + [[_cell(r.get(f)) for f in fields] for r in rows]
+            xlsx.write_workbook(os.path.join(self.data, os.path.splitext(name)[0] + ".xlsx"),
+                                {os.path.splitext(name)[0]: sheet})
+            return
         with open(os.path.join(self.data, name), "w", encoding="utf-8", newline="") as handle:
             w = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
             w.writeheader()
@@ -472,6 +506,19 @@ BEHAVIOUR = {
                      "growth": 3.0, "stress_runoff": 15.0},
     "borrowings": {"discount_spread": 0.30},
 }
+
+
+def _cell(value):
+    """A value as a workbook cell: numbers stay numbers, the rest text."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return value
+    return int(number) if str(value).isdigit() else number
 
 
 def main():

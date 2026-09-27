@@ -25,6 +25,7 @@ import datetime
 import json
 import os
 
+from keel import tables, xlsx
 from keel.model import InputError, Position
 
 #: Pooling bands. Wide enough to keep a large credit union's 100,000 loans to
@@ -52,13 +53,33 @@ def _num(text, default=0.0):
 
 
 def _read(folder, name, required=True):
-    path = os.path.join(folder, name)
-    if not os.path.isfile(path):
-        if required:
-            raise InputError("missing %s" % path)
-        return []
-    with open(path, encoding="utf-8", newline="") as handle:
-        return list(csv.DictReader(handle))
+    """A data table by name, from name.csv or name.xlsx."""
+    path = tables.find(folder, os.path.splitext(name)[0], required)
+    return tables.read_table(path) if path else []
+
+
+def read_mapping(folder):
+    """product_map.json, or product_map.xlsx with one sheet per section
+    (code | product; the gl sheet is key | account)."""
+    json_path = os.path.join(folder, "product_map.json")
+    xlsx_path = os.path.join(folder, "product_map.xlsx")
+    if os.path.isfile(json_path) and os.path.isfile(xlsx_path):
+        raise InputError("both product_map.json and product_map.xlsx are in %s; keep one" % folder)
+    if os.path.isfile(json_path):
+        with open(json_path, encoding="utf-8") as handle:
+            return json.load(handle)
+    if not os.path.isfile(xlsx_path):
+        raise InputError("missing product_map.json (or .xlsx) in %s" % folder)
+    out = {}
+    for name, rows in xlsx.read_workbook(xlsx_path).items():
+        section = {}
+        for row in xlsx.table(rows):
+            key = xlsx.as_text(row.get("key", row.get("code")))
+            value = xlsx.as_text(row.get("account", row.get("product")))
+            if key:
+                section[key] = value
+        out[name] = section
+    return out
 
 
 @dataclasses.dataclass
@@ -116,8 +137,7 @@ class Pool(object):
 def import_folder(folder, as_of):
     """Read `folder`/data and return Imported. `as_of` is a date."""
     data = os.path.join(folder, "data")
-    with open(os.path.join(data, "product_map.json"), encoding="utf-8") as handle:
-        mapping = json.load(handle)
+    mapping = read_mapping(data)
     rows = {}
     positions, summaries = [], {}
 

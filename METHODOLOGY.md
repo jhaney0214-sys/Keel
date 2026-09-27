@@ -160,6 +160,20 @@ Beyond level, bullet and non-maturity positions:
   plus the product's spread, by more than `call_threshold`.
 - **ARMs** reset first at `next_reset_months`, then every `reset_months`.
 
+## Reading CSV and Excel
+
+`keel/xlsx.py` reads .xlsx with the standard library. It handles numbers,
+text in the shared-strings table or inline, rich-text runs, booleans, and the
+cached value of a formula; it ignores styles, charts and comments. Because a
+cell's display format decides whether Excel shows a day count as a date,
+columns named `*_date` (and the `as_of` setting) are converted from Excel's
+1899-12-30 epoch, and dates typed as text (`2026-06-30` or `6/30/2026`) are
+accepted too. Checked 2026-09-27 against Microsoft Excel 16 in both
+directions. Excel opened every workbook Keel writes, including a 105,100-row
+loan file, without repair. A credit union's CSV and settings workbook
+re-saved by Excel (shared strings, dates as day counts) gave the same NII and
+NEV to the dollar.
+
 ## Importing core-system files
 
 `keel/importer.py` reads loans, certificates, tiered shares, securities,

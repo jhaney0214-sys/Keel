@@ -14,7 +14,6 @@ stress. Everything the projection does that is not arithmetic on the
 positions comes from this file, so nothing is buried in the code.
 """
 
-import csv
 import dataclasses
 import json
 import os
@@ -67,38 +66,39 @@ def _int(text, default=0):
 
 
 def read_positions(path):
+    """Positions from positions.csv or positions.xlsx."""
+    from keel import tables
     positions, seen = [], set()
-    with open(path, encoding="utf-8", newline="") as handle:
-        for line, row in enumerate(csv.DictReader(handle), 2):
-            where = "%s line %d" % (os.path.basename(path), line)
-            p = Position(
-                id=row["id"].strip(), name=row["name"].strip(), product=row["product"].strip(),
-                side=row["side"].strip().lower(), balance=float(row["balance"]),
-                rate=_pct(row.get("rate"), 0.0), rate_type=row["rate_type"].strip().lower(),
-                index=(row.get("index") or "").strip(), margin=_pct(row.get("margin"), 0.0),
-                reset_months=_int(row.get("reset_months")), term_months=_int(row.get("term_months")),
-                amortization=row["amortization"].strip().lower(),
-                floor=_pct(row.get("floor")), cap=_pct(row.get("cap")),
-                amort_months=_int(row.get("amort_months")), call_months=_int(row.get("call_months")),
-                next_reset_months=_int(row.get("next_reset_months")))
-            if p.id in seen:
-                raise InputError("%s: id %r appears twice" % (where, p.id))
-            seen.add(p.id)
-            if p.side not in SIDES:
-                raise InputError("%s: side must be asset or liability, not %r" % (where, p.side))
-            if p.rate_type not in RATE_TYPES:
-                raise InputError("%s: unknown rate_type %r" % (where, p.rate_type))
-            if p.amortization not in AMORTIZATIONS:
-                raise InputError("%s: unknown amortization %r" % (where, p.amortization))
-            if p.balance < 0 and not (p.rate_type == "none" and p.amortization == "none"):
-                raise InputError("%s: only a non-earning contra account (an allowance) may be negative" % where)
-            if p.amortization in ("level", "bullet", "balloon", "callable") and p.term_months <= 0:
-                raise InputError("%s: a %s position needs term_months" % (where, p.amortization))
-            if p.amortization == "balloon" and p.amort_months <= p.term_months:
-                raise InputError("%s: a balloon needs amort_months longer than term_months" % where)
-            if p.rate_type == "variable" and (not p.index or p.reset_months <= 0):
-                raise InputError("%s: a variable rate needs an index and reset_months" % where)
-            positions.append(p)
+    for line, row in enumerate(tables.read_table(path), 2):
+        where = "%s line %d" % (os.path.basename(path), line)
+        p = Position(
+            id=row["id"].strip(), name=row["name"].strip(), product=row["product"].strip(),
+            side=row["side"].strip().lower(), balance=float(row["balance"]),
+            rate=_pct(row.get("rate"), 0.0), rate_type=row["rate_type"].strip().lower(),
+            index=(row.get("index") or "").strip(), margin=_pct(row.get("margin"), 0.0),
+            reset_months=_int(row.get("reset_months")), term_months=_int(row.get("term_months")),
+            amortization=row["amortization"].strip().lower(),
+            floor=_pct(row.get("floor")), cap=_pct(row.get("cap")),
+            amort_months=_int(row.get("amort_months")), call_months=_int(row.get("call_months")),
+            next_reset_months=_int(row.get("next_reset_months")))
+        if p.id in seen:
+            raise InputError("%s: id %r appears twice" % (where, p.id))
+        seen.add(p.id)
+        if p.side not in SIDES:
+            raise InputError("%s: side must be asset or liability, not %r" % (where, p.side))
+        if p.rate_type not in RATE_TYPES:
+            raise InputError("%s: unknown rate_type %r" % (where, p.rate_type))
+        if p.amortization not in AMORTIZATIONS:
+            raise InputError("%s: unknown amortization %r" % (where, p.amortization))
+        if p.balance < 0 and not (p.rate_type == "none" and p.amortization == "none"):
+            raise InputError("%s: only a non-earning contra account (an allowance) may be negative" % where)
+        if p.amortization in ("level", "bullet", "balloon", "callable") and p.term_months <= 0:
+            raise InputError("%s: a %s position needs term_months" % (where, p.amortization))
+        if p.amortization == "balloon" and p.amort_months <= p.term_months:
+            raise InputError("%s: a balloon needs amort_months longer than term_months" % where)
+        if p.rate_type == "variable" and (not p.index or p.reset_months <= 0):
+            raise InputError("%s: a variable rate needs an index and reset_months" % where)
+        positions.append(p)
     return positions
 
 
@@ -162,8 +162,9 @@ class Assumptions:
 
 
 def read_assumptions(path):
-    with open(path, encoding="utf-8") as handle:
-        return parse_assumptions(json.load(handle))
+    """Settings from assumptions.xlsx or assumptions.json."""
+    from keel import settings
+    return parse_assumptions(settings.load(path))
 
 
 def parse_assumptions(raw):

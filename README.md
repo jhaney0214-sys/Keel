@@ -40,9 +40,9 @@ python -m keel serve examples/mid-cu         # a what-if page at http://127.0.0.
 
 | Sample | Size | Shape | Supervisory test |
 |---|---|---|---|
-| `small-cu` | $85M | consumer lending, very liquid, just over NCUA's $50M line | Low |
-| `mid-cu` | $560M | close to the system's own mix, some commercial real estate | Moderate |
-| `large-cu` | $2.4B | mortgage-heavy, certificate-funded, FHLB borrowing | High |
+| `small-cu` | $85M | consumer lending, very liquid, just over NCUA's $50M line; CSV data, JSON settings | Low |
+| `mid-cu` | $560M | close to the system's own mix; **CSV data, Excel settings** | Moderate |
+| `large-cu` | $2.4B | mortgage-heavy, certificate-funded, FHLB borrowing; everything in Excel | High |
 | `sample-cu` | $560M | a hand-written `positions.csv`, for reading the format | High |
 
 The generated three are written as a core system exports them, calibrated to
@@ -50,6 +50,15 @@ NCUA's Quarterly Credit Union Data Summary for 2026Q2. **Every figure is
 invented** from a fixed seed; none describes a real institution.
 
 ## Inputs
+
+**Every input can be a CSV or an Excel workbook (.xlsx)**: the settings, the
+product map, each data file, and `positions`. The usual arrangement, CSV data
+with an Excel settings workbook, works as it is, and so does all-CSV or
+all-Excel. The samples use all three. Excel files are read with the standard
+library, so there is still nothing to install. Dates are read whether Excel
+stored them as dates or someone typed them as text. A folder holding both
+`loans.csv` and `loans.xlsx` is refused rather than guessed between. An old
+`.xls` needs saving as `.xlsx` first.
 
 **From core-system files** (a folder with `data/`):
 
@@ -61,7 +70,7 @@ invented** from a fixed seed; none describes a real institution.
 | `investments.csv` | one per security: type, par, book value, coupon, book yield, maturity, next call date, WAM and CPR for MBS and CMOs, AFS or HTM |
 | `borrowings.csv` | one per borrowing: lender, balance, rate, maturity |
 | `gl.csv` | the trial balance the detail must tie to |
-| `product_map.json` | core product codes to Keel products, and the GL accounts for cash, fixed assets, the NCUSIF deposit, other assets, the allowance and other liabilities |
+| `product_map.json` or `.xlsx` | core product codes to Keel products, and the GL accounts for cash, fixed assets, the NCUSIF deposit, other assets, the allowance and other liabilities (as a workbook: one sheet per section) |
 
 The importer pools loans and certificates that behave alike (same product,
 rate type, index and margin, reset timing, remaining term within 6 months and
@@ -72,7 +81,12 @@ It ties every detail file to its GL line before modelling anything.
 **Or directly:** `positions.csv`, one row per instrument or pool; see
 `examples/sample-cu`.
 
-**Both need `assumptions.json`**: the curve and indexes; each product's
+**Both need settings**, as `assumptions.xlsx` or `assumptions.json`. The
+workbook has one sheet per kind of setting (Settings, Curve, Indexes,
+Products, Scenarios, Contingent, Notes), in the same units as the JSON, and
+`python -m keel convert` turns either into the other. A misspelled column or
+a value that is not a number is refused with its sheet, product and column.
+The settings cover the curve and indexes; each product's
 behaviour (prepayment and its rate sensitivity, share decay and beta,
 new-business term and spread, NEV discount spread, planned growth,
 charge-offs, liquidity haircut and stress runoff, call threshold); income and
@@ -112,7 +126,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 46 tests
+python -m unittest discover -s tests      # 57 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,
