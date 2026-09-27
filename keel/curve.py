@@ -40,12 +40,15 @@ class Scenario(object):
     flat beyond them: {"1": 200, "120": 0} is a flattener that lifts the short
     end 200bp and leaves ten years unchanged. `shock_bp` is then ignored."""
 
-    def __init__(self, name, shock_bp=0.0, ramp_months=0, floor=0.0, shape=None):
+    def __init__(self, name, shock_bp=0.0, ramp_months=0, floor=0.0, shape=None, use_path=True):
         self.name = name
         self.shock_bp = float(shock_bp)
         self.ramp_months = int(ramp_months)
         self.floor = floor
         self.shape = Curve(shape) if shape else None
+        # False for "rates unchanged": the one scenario that ignores the
+        # base-case rate path, so the plan can be read against it.
+        self.use_path = use_path
 
     @property
     def instantaneous(self):
@@ -73,6 +76,77 @@ class Scenario(object):
 
     def __repr__(self):
         return "Scenario(%r)" % self.name
+
+
+class RatePath(object):
+    """Where rates go in the base case, as a move (in basis points) from
+    today's curve by month and tenor. Shocks and ramps are applied on top.
+
+    * ``forward``: the curve's own implied forwards. Today's par rates are
+      read as annually compounded zero rates, and the rate for `tenor`
+      months starting in `month` is the one that links the two:
+      (1 + z(m + T))^((m + T)/12) = (1 + z(m))^(m/12) * (1 + f)^(T/12).
+    * ``forecast``: a management or economist forecast, given as rates at
+      some months and tenors. Each forecast month's moves are interpolated
+      across tenors (a forecast of only Fed funds and the ten-year still
+      moves the five-year), and between months linearly from today's curve;
+      after the last forecast month the curve holds.
+
+    Only the going-concern plan follows the path. NEV and every other
+    present value discount on today's curve, because a market value is
+    today's price."""
+
+    def __init__(self, kind, curve, rows=None):
+        if kind not in ("forward", "forecast"):
+            raise ValueError("base case must be flat, forward or forecast, not %r" % kind)
+        self.kind = kind
+        self.curve = curve
+        self.cache = {}
+        self.months = []
+        if kind == "forecast":
+            by_month = {}
+            for month, tenor, rate in rows or []:
+                by_month.setdefault(int(month), {})[float(tenor)] = 100.0 * (float(rate) - curve.rate(float(tenor)))
+            if not by_month:
+                raise ValueError("a forecast base case needs at least one forecast rate")
+            self.months = sorted(by_month)
+            self.moves = {m: Curve(by_month[m]) for m in self.months}
+
+    def _zero(self, months):
+        return self.curve.rate(max(months, 1)) / 100.0
+
+    def move_bp(self, month, tenor):
+        key = (month, tenor)
+        if key in self.cache:
+            return self.cache[key]
+        if month <= 0:
+            value = 0.0
+        elif self.kind == "forward":
+            m, t = float(month), float(max(tenor, 1))
+            grown = (1.0 + self._zero(m + t)) ** ((m + t) / 12.0)
+            start = (1.0 + self._zero(m)) ** (m / 12.0)
+            forward = (grown / start) ** (12.0 / t) - 1.0
+            value = 100.0 * (100.0 * forward - self.curve.rate(tenor))
+        else:
+            value = self._forecast(month, tenor)
+        self.cache[key] = value
+        return value
+
+    def _forecast(self, month, tenor):
+        months = self.months
+        if month >= months[-1]:
+            return self.moves[months[-1]].rate(tenor)
+        prior_m, prior_v = 0, 0.0
+        for m in months:
+            v = self.moves[m].rate(tenor)
+            if month <= m:
+                w = (month - prior_m) / float(m - prior_m)
+                return prior_v + w * (v - prior_v)
+            prior_m, prior_v = m, v
+        return prior_v
+
+    def rate(self, month, tenor):
+        return self.curve.rate(tenor) + self.move_bp(month, tenor) / 100.0
 
 
 def standard_scenarios(floor=0.0):

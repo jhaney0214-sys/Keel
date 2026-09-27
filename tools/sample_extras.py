@@ -83,6 +83,60 @@ PROPOSALS = {
 }
 
 
+def _months(n=12):
+    """YYYY-MM for plan months 1..n after the samples' analysis date, 2026-06-30."""
+    out, y, m = [], 2026, 6
+    for _ in range(n):
+        m += 1
+        if m > 12:
+            y, m = y + 1, 1
+        out.append("%04d-%02d" % (y, m))
+    return out
+
+
+def budget_spec(name, spec):
+    """The mid-size sample budgets the way a finance team does: on a rate
+    forecast (the Fed cutting 75bp over a year), with monthly loan
+    production and deposit offering rates, and expenses by line."""
+    if name != "mid-cu":
+        return {}
+    months = _months()
+    fee, opex = spec["fee_income"], spec["operating_expense"]
+    drivers = []
+    for i, month in enumerate(months):
+        drivers += [{"product": "new_auto", "month": month, "volume": 1650000 if i % 12 not in (2, 3, 4) else 1950000},
+                    {"product": "used_auto", "month": month, "volume": 3000000 if i % 12 not in (2, 3, 4) else 3400000},
+                    {"product": "first_mortgage", "month": month, "volume": 850000}]
+    drivers += [{"product": "certificates", "month": months[0], "rate": 4.05},
+                {"product": "certificates", "month": months[3], "rate": 3.85},
+                {"product": "certificates", "month": months[6], "rate": 3.65},
+                {"product": "money_market", "month": months[0], "rate": 2.80},
+                {"product": "money_market", "month": months[3], "rate": 2.60}]
+    return {
+        "base_case": "forecast",
+        "rate_forecast": [
+            {"month": months[2], "tenor_months": 1, "rate": 3.75},
+            {"month": months[5], "tenor_months": 1, "rate": 3.50}, {"month": months[5], "tenor_months": 120, "rate": 4.05},
+            {"month": months[11], "tenor_months": 1, "rate": 3.25}, {"month": months[11], "tenor_months": 12, "rate": 3.30},
+            {"month": months[11], "tenor_months": 120, "rate": 4.10},
+            {"month": 24, "tenor_months": 1, "rate": 3.25}, {"month": 24, "tenor_months": 120, "rate": 4.25}],
+        "drivers": drivers,
+        "noninterest": [
+            {"line": "Interchange income", "kind": "income", "annual": round(fee * 0.45, -3), "growth": 3.0},
+            {"line": "Service charges and fees", "kind": "income", "annual": round(fee * 0.30, -3), "growth": 1.0},
+            {"line": "Loan fees", "kind": "income", "annual": round(fee * 0.10, -3), "growth": 2.0},
+            {"line": "Other income", "kind": "income", "annual": round(fee * 0.15, -3), "growth": 0.0},
+            {"line": "Salaries and benefits", "kind": "expense", "annual": round(opex * 0.52, -3), "growth": 3.5},
+            {"line": "Occupancy", "kind": "expense", "annual": round(opex * 0.11, -3), "growth": 2.0},
+            {"line": "Data processing", "kind": "expense", "annual": round(opex * 0.14, -3), "growth": 4.0},
+            {"line": "Marketing", "kind": "expense", "annual": round(opex * 0.05, -3), "growth": 2.0},
+            {"line": "Professional services", "kind": "expense", "annual": round(opex * 0.05, -3), "growth": 2.0},
+            {"line": "Other operating expense", "kind": "expense", "annual": round(opex * 0.13, -3), "growth": 2.0},
+            {"line": "Two new lending officers", "kind": "expense", "annual": 240000, "growth": 3.5,
+             "start_month": months[3]}],
+    }
+
+
 def add_costs(products):
     for name, costs in COSTS.items():
         if name in products:
@@ -298,3 +352,104 @@ def run():
     write_proposals()
     print("%-14s %d rows of actuals" % ("mid-cu", write_actuals()))
     print("%-14s %d positions" % ("community-bank", write_bank()))
+    print("%-14s %d positions, and its June run in history/" % ("backtest-cu", write_backtest()))
+
+
+# --------------------------------------------------------------- the back-test
+
+def write_backtest():
+    """Summit Valley Credit Union (synthetic): the hand-written sample's book,
+    run as of 2026-06-30 and saved to history, then the same credit union a
+    quarter later. September's book is June's forecast for September with the
+    misses a real quarter has: money market running off faster than assumed,
+    certificates repricing faster than their beta, auto loans ahead of plan,
+    and the short rate 25bp below where June assumed it would be."""
+    import copy
+    import csv
+    from keel import history, model, results
+    source = os.path.join(EXAMPLES, "sample-cu")
+    folder = os.path.join(EXAMPLES, "backtest-cu")
+    if os.path.isdir(os.path.join(folder, "history")):
+        for old in os.listdir(os.path.join(folder, "history")):
+            os.remove(os.path.join(folder, "history", old))
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(source, "assumptions.json"), encoding="utf-8") as handle:
+        june_raw = json.load(handle)
+    june_raw["notes"] = {"about": "Summit Valley Credit Union (synthetic). The hand-written sample's book a quarter "
+                                  "on, with its June run in history/ for the back-test. Every figure is invented by "
+                                  "tools/sample_extras.py; none describes a real institution."}
+    june = model.parse_assumptions(june_raw)
+    positions = model.read_positions(os.path.join(source, "positions.csv"))
+    r = results.compute(positions, june, "Summit Valley Credit Union (synthetic)", assumption_tests=False)
+    history.save(folder, history.snapshot(r))
+
+    k = 3
+    run = r["base_run"]
+    misses = {"money_market": -0.06, "certificates": 0.02, "new_auto": 0.04, "used_auto": 0.03, "regular_shares": -0.01,
+              "first_mortgage": 0.01}
+    rate_misses = {"certificates": 0.0020, "money_market": 0.0015}
+    by_product = {}
+    for p in positions:
+        by_product.setdefault(p.product, []).append(p)
+    september = []
+    for product, group in by_product.items():
+        if product == "cash":
+            continue
+        total = sum(p.balance for p in group)
+        target = run[k - 1].balances.get(product, total) * (1.0 + misses.get(product, 0.0))
+        spec = june.products[product]
+        forecast_rate = None
+        if run[k - 1].balances.get(product):
+            average = (run[k - 2].balances[product] + run[k - 1].balances[product]) / 2.0
+            forecast_rate = 12.0 * run[k - 1].interest.get(product, 0.0) / average if average else None
+        for p in group:
+            q = copy.copy(p)
+            q.balance = round(p.balance * (target / total if total else 1.0), 2)
+            if q.term_months:
+                q.term_months = q.term_months - k if q.term_months > k else max(spec.new_term, 1)
+            if q.rate_type == "administered" and forecast_rate is not None:
+                q.rate = forecast_rate + rate_misses.get(product, 0.0)
+            september.append(q)
+    equity = run[k - 1].equity - 150000.0          # a little below plan: fees light, expenses heavy
+    assets = sum(p.balance for p in september if p.side == "asset")
+    liabilities = sum(p.balance for p in september if p.side == "liability")
+    cash = [p for p in positions if p.product == "cash"][0]
+    september.insert(0, model.Position(id=cash.id, name=cash.name, product="cash", side="asset",
+                                       balance=round(liabilities + equity - assets, 2), rate=0.0, rate_type="none",
+                                       amortization="none"))
+    head = ["id", "name", "product", "side", "balance", "rate", "rate_type", "index", "margin", "reset_months",
+            "term_months", "amortization", "floor", "cap"]
+    with open(os.path.join(folder, "positions.csv"), "w", encoding="utf-8", newline="") as handle:
+        w = csv.writer(handle)
+        w.writerow(head)
+        for p in september:
+            w.writerow([p.id, p.name, p.product, p.side, "%.2f" % p.balance, "%.3f" % (100 * p.rate), p.rate_type,
+                        p.index, "%.3f" % (100 * p.margin) if p.margin else "", p.reset_months or "",
+                        p.term_months or "", p.amortization,
+                        "" if p.floor is None else "%.3f" % (100 * p.floor), "" if p.cap is None else "%.3f" % (100 * p.cap)])
+    sept_raw = copy.deepcopy(june_raw)
+    sept_raw["as_of"] = "2026-09-30"
+    sept_raw["curve"] = {t: round(v - (0.25 if float(t) <= 12 else 0.10), 2) for t, v in june_raw["curve"].items()}
+    sept_raw["products"]["money_market"]["beta"] = 65.0
+    sept_raw["products"]["money_market"]["runoff"] = 26.0
+    sept_raw["products"]["certificates"]["spread"] = sept_raw["products"]["certificates"].get("spread", 0) + 0.10
+    sept_raw["limits"] = {"nev_decline_300": 45.0}
+    with open(os.path.join(folder, "assumptions.json"), "w", encoding="utf-8") as handle:
+        json.dump(sept_raw, handle, indent=2)
+    # July to September, as the general ledger reported them: the forecast
+    # with the same misses, so the NII back-test has something to find.
+    rows = []
+    labels = r["budget"]["labels"][:k]
+    for t, month in enumerate(labels):
+        for product in by_product:
+            if product == "cash":
+                continue
+            interest = run[t].interest.get(product, 0.0)
+            miss = misses.get(product, 0.0) * (t + 1) / k
+            rows.append([month, product, "", round(interest * (1 + miss + (rate_misses.get(product, 0.0) * 12 * (t + 1) / k
+                                                                            if product in rate_misses else 0.0)), 2)])
+    with open(os.path.join(folder, "actuals.csv"), "w", encoding="utf-8", newline="") as handle:
+        w = csv.writer(handle)
+        w.writerow(["month", "line", "average_balance", "amount"])
+        w.writerows(rows)
+    return len(september)

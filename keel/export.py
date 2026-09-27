@@ -77,6 +77,16 @@ def sheets(r):
         out[title] = [["product", "side"] + b["labels"]] + [[p["product"], p["side"]] + p[key] for p in b["products"]]
     keys = ("interest_income", "interest_expense", "nii", "fee_income", "operating_expense", "credit_losses",
             "income_tax", "net_income")
+    if b.get("lines"):
+        out["Budget noninterest"] = [["line", "kind"] + b["labels"]] + [[x["line"], x["kind"]] + x["months"]
+                                                                        for x in b["lines"]]
+    if b.get("drivers"):
+        out["Budget drivers"] = [["product", "month", "volume", "balance", "rate_pct"]] + [
+            [d["product"], d["month"], d["volume"], d["balance"], _pct(d["rate"])] for d in b["drivers"]]
+    path = r.get("rate_path")
+    if path and path["kind"] != "flat":
+        out["Rate path"] = [["month"] + ["rate_%dm" % t for t in path["tenors"]]] + [
+            [x["month"]] + x["rates"] for x in path["rows"]]
     out["Budget income"] = [["line"] + b["labels"]] + [[key] + [m[key] for m in b["income"]] for key in keys]
     v = r.get("variance")
     if v:
@@ -89,6 +99,27 @@ def sheets(r):
     for i, q in enumerate(r.get("queries") or [], 1):
         title = re.sub(r"[\[\]:*?/\\]", "-", "Q%d %s" % (i, q["name"]))[:31]   # characters Excel refuses
         out[title] = [q["columns"]] + q["rows"] + ([q["total"]] if q["total"] else [])
+    t = r.get("sensitivity")
+    if t:
+        out["Assumption tests"] = [["family", "variant", "nii_y1", "nii_decline_300_pct", "nev_decline_300_pct",
+                                    "nev_ratio_min_pct", "limit_flips"]] + [
+            ["as assumed", "", t["baseline"]["nii_y1"], t["baseline"]["nii_decline_300"],
+             t["baseline"]["nev_decline_300"], t["baseline"]["nev_ratio_min"], ""]] + [
+            [x["family"], x["variant"], x["values"]["nii_y1"], x["values"]["nii_decline_300"],
+             x["values"]["nev_decline_300"], x["values"]["nev_ratio_min"], ", ".join(x["flips"])] for x in t["rows"]]
+    h = r.get("history")
+    if h:
+        keys = ("as_of", "assets", "nii_y1", "nii_decline_300", "nev_ratio_min", "nev_decline_300", "supervisory_ratio",
+                "net_worth_ratio", "capital_to_rwa", "breaches")
+        out["Trend"] = [list(keys)] + [[x.get(key) for key in keys] for x in h["trend"]]
+        if h["changes"]:
+            out["Assumption changes"] = [["assumption", "was", "now"]] + [
+                [w, "" if o is None else o, "" if n is None else n] for w, o, n in h["changes"]]
+        if h["backtest"]:
+            out["Back-test"] = [["product", "side", "forecast", "actual", "error", "forecast_rate_pct",
+                                 "actual_rate_pct"]] + [
+                [x["product"], x["side"], x["forecast"], x["actual"], x["error"], _pct(x["forecast_rate"]),
+                 _pct(x["actual_rate"])] for x in h["backtest"]["products"]]
     out["Checks"] = [["check", "passed", "detail"]] + [[c.name, c.passed, c.detail] for c in r["checks"]]
     months = r["base_run"]
     out["Monthly base"] = [["month", "cash", "overnight", "interest_income", "interest_expense", "fee_income",

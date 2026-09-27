@@ -44,9 +44,12 @@ def diverging_bars(rows, fmt, title, limit=None, limit_label="limit", both_sides
         pos = 1.0
     # a side with data never shrinks below a sixth of the plot, so its labels fit
     neg, pos = (max(neg, (neg + pos) / 6) if neg else 0.0), (max(pos, (neg + pos) / 6) if pos else 0.0)
-    plot = WIDTH - left - right
+    # Room for a value label beyond the longest bar on each side that has
+    # bars, so a label never runs into the row labels or off the chart.
+    room_neg = 58 if any(v < 0 for _, v, _ in rows) else 0
+    plot = WIDTH - left - right - room_neg
     scale = plot / (neg + pos)
-    zero = left + neg * scale
+    zero = left + room_neg + neg * scale
     parts = ['<svg class="chart" viewBox="0 0 %d %d" role="img" aria-label="%s">' % (WIDTH, height, _esc(title))]
     parts.append('<text class="c-title" x="0" y="16">%s</text>' % _esc(title))
     ticks = [t for t in _ticks(-neg, pos, 6) if t and -neg <= t <= pos]

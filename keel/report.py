@@ -249,6 +249,7 @@ def rate_risk(r):
                  "everything else by its principal cash flows, including prepayment and share decay. Not "
                  "rate-sensitive: assets %s, liabilities %s.</p>" % (k(r["insensitive"]["asset"]),
                                                                       k(r["insensitive"]["liability"])))
+    parts.append(assumptions_test_section(r))
     parts.append("</section>")
     return "".join(parts)
 
@@ -275,7 +276,11 @@ def plan(r):
                          for m, v in enumerate(path, 1) if m % 6 == 0 or m == 1],
                         lambda v: "%.1f%%" % v, "Net worth ratio, base plan", reference=nw_limit,
                         reference_label="limit %g%%" % nw_limit, zero=False)
-    parts = ["<section id='plan'><h2>The plan</h2><div class='charts'>%s%s</div>" % (income, worth)]
+    case = {"flat": "today's curve, held for the whole plan", "forward": "the curve's implied forward rates",
+            "forecast": "the rate forecast in the settings (Forecast sheet)"}[r["assumptions"].base_case]
+    parts = ["<section id='plan'><h2>The plan</h2><p class='muted'>Base case: %s. Every scenario is a shock on "
+             "top of it; NEV and market values stay on today's curve.</p><div class='charts'>%s%s</div>" % (
+                 case, income, worth)]
     lines = (("Interest income", "interest_income"), ("Interest expense", "interest_expense"),
              ("Net interest income", "net_interest_income"), ("Fee and other income", "fee_income"),
              ("Operating expense", "operating_expense"), ("Credit losses", "credit_losses"))
@@ -472,6 +477,38 @@ def budget_section(r):
         if avg <= 0 and interest == 0:
             continue
         rows.append([label(p["product"]), k(p["end"][-1]), k(avg), k(interest), pct(interest / avg if avg else 0.0)])
+    if b["lines"]:
+        parts.append("<h3>Non-interest income and expense by month ($000)</h3>")
+        extra_rows = []
+        for kind, title in (("income", "Income"), ("expense", "Expense")):
+            chosen = [x for x in b["lines"] if x["kind"] == kind]
+            extra_rows += [[esc(x["line"])] + [k(v) for v in x["months"]] + [k(sum(x["months"]))] for x in chosen]
+            if chosen:
+                months = [sum(x["months"][t] for x in chosen) for t in range(len(short))]
+                extra_rows.append(["<b>Total %s</b>" % kind] + ["<b>%s</b>" % k(v) for v in months] +
+                            ["<b>%s</b>" % k(sum(months))])
+        parts.append(table(["Line"] + short + ["Year"], extra_rows))
+    if b["drivers"]:
+        parts.append("<h3>Budget drivers</h3>")
+        grid = {}
+        for d in b["drivers"]:
+            for kind in ("volume", "balance", "rate"):
+                if d[kind] is not None:
+                    grid.setdefault((d["product"], kind), {})[d["plan_month"]] = d[kind]
+        extra_rows = []
+        names = {"volume": "new volume ($000)", "balance": "month-end balance ($000)", "rate": "offering rate"}
+        for (product, kind), by_month in sorted(grid.items()):
+            cells = []
+            for m in range(1, len(short) + 1):
+                amount = by_month.get(m)
+                cells.append("" if amount is None else pct(amount) if kind == "rate" else k(amount))
+            later = [m for m in by_month if m > len(short)]
+            extra_rows.append(["%s: %s" % (label(product), names[kind])] + cells + ["+%d later" % len(later) if later else ""])
+        parts.append(table(["Driver"] + short + [""], extra_rows))
+        parts.append("<p class='muted'>A volume is new business that month; a balance is where the product should "
+                     "end the month; an offering rate prices new business (and, for a share product, the whole "
+                     "balance) from that month on, and a scenario still moves it by its shift or beta. Between "
+                     "and after drivers a product grows at its planned rate from where the last driver left it.</p>")
     parts.append("<h3>By product, budget year ($000)</h3>")
     parts.append(table(["Product", "Year-end balance", "Average balance", "Interest", "Yield"], rows))
     if v:
@@ -524,6 +561,144 @@ def adhoc_section(r):
     return "".join(parts)
 
 
+def assumptions_test_section(r):
+    t = r.get("sensitivity")
+    if not t:
+        return ""
+    base = t["baseline"]
+    limits = {x.key: x for x in r["limits"]}
+    parts = ["<h3 id='assumption-tests'>Key assumptions: what the answer depends on</h3>"]
+    parts.append("<p class='muted'>Each assumption moved on its own, everything else held, and the rate-risk measures "
+                 "run again. An assumption whose plausible range changes a limit's status is one the institution "
+                 "needs its own evidence for: a deposit study for betas and decay, prepayment history for speeds.</p>")
+    parts.append(charts.diverging_bars(
+        [("%s %s" % (x["family"].lower(), x["variant"].split(" ")[0]),
+          x["values"]["nev_decline_300"] - base["nev_decline_300"],
+          "%s %s: NEV decline %.1f%% (base %.1f%%), NEV ratio %.1f%%, NII decline %.1f%%" % (
+              x["family"], x["variant"], x["values"]["nev_decline_300"], base["nev_decline_300"],
+              x["values"]["nev_ratio_min"], x["values"]["nii_decline_300"])) for x in t["rows"]],
+        lambda v: "%+.1f pts" % v, "Change in the worst NEV decline (±300bp), points"))
+    rows = [["<b>As assumed</b>", "", k(base["nii_y1"]), "%.1f%%" % base["nii_decline_300"],
+             "%.1f%%" % base["nev_decline_300"], "%.1f%%" % base["nev_ratio_min"],
+             " ".join(chip(t["status"][key], limits[key].label.split(",")[0]) for key in ("nii_decline_300", "nev_decline_300",
+                                                                                          "nev_ratio_min")
+                      if t["status"][key] != "within") or chip("within", "All within")]]
+    for x in t["rows"]:
+        flips = " ".join(chip(x["status"][key], "%s now %s" % (limits[key].label.split(",")[0],
+                                                               STATUS[x["status"][key]][2].lower()))
+                         for key in x["flips"])
+        rows.append([esc(x["family"]), esc(x["variant"]), k(x["values"]["nii_y1"]),
+                     "%.1f%%" % x["values"]["nii_decline_300"], "%.1f%%" % x["values"]["nev_decline_300"],
+                     "%.1f%%" % x["values"]["nev_ratio_min"], flips or "no change"])
+    parts.append(table(["Assumption", "Variant", "Year-1 NII ($000)", "NII decline, worst ±300", "NEV decline, worst ±300",
+                        "NEV ratio, worst ±300", "Limit status"], rows, numeric_from=2))
+    parts.append("<p class='muted'>Betas, decay, speeds and spreads are scaled across every product that has them. "
+                 "Decay changes NEV, not the plan's NII: the plan holds share balances to their growth path.</p>")
+    return "".join(parts)
+
+
+def history_section(r):
+    h = r.get("history")
+    if h is None:
+        return ""
+    parts = ["<section id='history'><h2>History and back-test</h2>"]
+    trend = h["trend"]
+    if len(trend) < 2:
+        parts.append("<p>This is the first run saved for this institution. From the next analysis date on, this "
+                     "section shows the trend quarter by quarter, every assumption changed since, and how this "
+                     "run's forecast compares with what actually happened. Each run is saved in "
+                     "<code>history/</code>.</p></section>")
+        return "".join(parts)
+    parts.append("<h3>Trend</h3>")
+    parts.append(table(["Analysis date", "Assets ($000)", "Year-1 NII ($000)", "NII decline, worst ±300", "NEV ratio, worst ±300",
+                        "NEV decline, worst ±300", "Supervisory NEV ratio", "Net worth ratio", "Capital to RWA",
+                        "Limits breached"],
+                       [[esc(x["as_of"]), k(x["assets"]), k(x["nii_y1"]), "%.1f%%" % x["nii_decline_300"],
+                         "%.1f%%" % x["nev_ratio_min"], "%.1f%%" % x["nev_decline_300"], "%.2f%%" % x["supervisory_ratio"],
+                         "%.2f%%" % x["net_worth_ratio"],
+                         "" if x.get("capital_to_rwa") is None else "%.1f%%" % x["capital_to_rwa"],
+                         str(x["breaches"])] for x in trend]))
+    parts.append("<h3>Assumptions changed since %s</h3>" % esc(h["prior"]))
+    if h["changes"]:
+        parts.append(table(["Assumption", "Was", "Now"],
+                           [[esc(w), esc(_plain(o)), esc(_plain(n))] for w, o, n in h["changes"]], numeric_from=1))
+        parts.append("<p class='muted'>Record why each changed: the change log is part of model governance.</p>")
+    else:
+        parts.append("<p>None: every assumption is as it was.</p>")
+    b = h["backtest"]
+    if b:
+        parts.append("<h3>Back-test: what the %s run forecast for today</h3>" % esc(b["from"]))
+        moved = b["short_actual"] - b["short_forecast"]
+        parts.append("<p>%d month%s on. That run assumed a short rate of %.2f%% by now; it is %.2f%% (%+d bp), so "
+                     "part of any miss below is the rate environment, not behaviour.</p>" % (
+                         b["months"], "s" if b["months"] > 1 else "", b["short_forecast"], b["short_actual"],
+                         round(100 * moved)))
+        rows = []
+        for x in b["products"]:
+            if x["product"] == "cash" or (x["forecast_rate"] in (None, 0.0) and x["actual_rate"] in (None, 0.0)):
+                continue
+            flag = ""
+            if x["error_pct"] is not None and abs(x["error_pct"]) >= 0.05:
+                flag = chip("near" if abs(x["error_pct"]) < 0.10 else "breach", "%+.0f%%" % (100 * x["error_pct"]))
+            rate_gap = ("%+d bp" % round(10000 * (x["actual_rate"] - x["forecast_rate"]))
+                        if x["forecast_rate"] is not None and x["actual_rate"] is not None else "")
+            rows.append([label(x["product"]), k(x["forecast"]), k(x["actual"]), k(x["error"]),
+                         "" if x["error_pct"] is None else "%+.1f%%" % (100 * x["error_pct"]),
+                         "" if x["forecast_rate"] is None else pct(x["forecast_rate"]),
+                         "" if x["actual_rate"] is None else pct(x["actual_rate"]), rate_gap, flag])
+        parts.append(table(["Product", "Forecast balance", "Actual balance", "Miss ($000)", "Miss", "Forecast rate",
+                            "Actual rate", "Rate miss", ""], rows))
+        parts.append("<p class='muted'>A deposit balance that misses shows the decay or growth assumption at work; an "
+                     "administered rate that misses shows the beta. Misses of 5% or more are marked. Cash, the account that "
+                     "settles everything, and non-earning lines are left out. The forecast "
+                     "rate is the plan's interest over its average balance in that month.</p>")
+        known = [x for x in b["nii"] if x["actual"] is not None]
+        if known:
+            f = sum(x["forecast"] for x in known)
+            a_ = sum(x["actual"] for x in known)
+            parts.append(table(["Month", "Forecast NII ($000)", "Actual NII ($000)", "Miss"],
+                               [[esc(x["month"]), k(x["forecast"]), "" if x["actual"] is None else k(x["actual"]),
+                                 "" if x["actual"] is None else "%+.1f%%" % (100 * (x["actual"] / x["forecast"] - 1))]
+                                for x in b["nii"]] + [["Total", k(f), k(a_), "%+.1f%%" % (100 * (a_ / f - 1))]],
+                               total_last=True))
+        else:
+            parts.append("<p class='muted'>Add those months to <code>actuals.csv</code> to back-test net interest "
+                         "income as well.</p>")
+    parts.append("</section>")
+    return "".join(parts)
+
+
+def _plain(v):
+    if isinstance(v, float):
+        return "%g" % round(v, 6)
+    return "" if v is None else str(v)
+
+
+def peers_section(r):
+    p = r.get("peers")
+    if not p:
+        return ""
+    parts = ["<section id='peers'><h2>Peers</h2><p>Against the %s credit unions in NCUA's %s peer group, from "
+             "the %s call report. Percentile is the share of peers below this credit union.</p>" % (
+                 "{:,}".format(p["count"]), esc(p["peer_group"]), esc(p["cycle"]))]
+    rows = []
+    for x in p["ratios"]:
+        tag = ""
+        if x["better"]:
+            good = x["percentile"] >= 50 if x["better"] == "higher" else x["percentile"] <= 50
+            extreme = x["percentile"] <= 10 or x["percentile"] >= 90
+            if extreme:
+                tag = chip("within" if good else "breach", "Top tenth" if good else "Bottom tenth")
+        rows.append([esc(x["label"]), "%.2f%%" % x["value"], "%.2f%%" % x["p25"], "%.2f%%" % x["median"],
+                     "%.2f%%" % x["p75"], "%.0f" % x["percentile"], tag])
+    parts.append(table(["Ratio", "This credit union", "Peer 25th", "Peer median", "Peer 75th", "Percentile", ""],
+                       rows))
+    parts.append("<p class='muted'>Ratios from the call report as filed, income annualized. Top and bottom tenth "
+                 "are marked where a direction is better; for the others (loans to shares, liquidity, funding "
+                 "mix) the peer range is context, not a grade.</p></section>")
+    return "".join(parts)
+
+
 def reconciliation(r):
     rows = [[esc(c.name), "<span class='%s'>%s</span>" % (
         "pass" if c.passed else "fail", "&#10003; Pass" if c.passed else "&#10005; FAIL"), esc(c.detail)]
@@ -543,8 +718,16 @@ def assumptions_section(r):
     for s in a.scenarios:
         move = ("parallel %+gbp" % s.shock_bp if s.shape is None else "shaped: " + ", ".join(
             "%gm %+gbp" % (t, v) for t, v in zip(s.shape.tenors, s.shape.rates)))
+        if not s.use_path:
+            move = "today's curve held, ignoring the base-case path"
         scen.append([esc(s.name), esc(move + (", over %d months" % s.ramp_months if s.ramp_months else ""))])
     parts.append("<div><h3>Scenarios</h3>%s</div></div>" % table(["Scenario", "Move"], scen, numeric_from=99))
+    path = r["rate_path"]
+    if path["kind"] != "flat":
+        parts.append("<h3>Base-case rate path (%s)</h3>" % ("implied forwards" if path["kind"] == "forward"
+                                                             else "forecast"))
+        parts.append(table(["Month"] + ["%dm rate" % t for t in path["tenors"]],
+                           [[str(x["month"])] + ["%.2f%%" % v for v in x["rates"]] for x in path["rows"]]))
     fields = ("cpr", "cpr_per_100bp", "runoff", "runoff_per_100bp", "beta", "rate_floor", "new_term", "spread",
               "discount_spread", "growth", "charge_off", "haircut", "stress_runoff")
     rows = [[label(product)] + [(str(getattr(a.products[product], f)) if f == "new_term"
@@ -572,6 +755,10 @@ def page(r, downloads=()):
     nav += [("profitability", "Profitability"), ("budget", "Budget")]
     if r["queries"]:
         nav.append(("adhoc", "Ad hoc"))
+    if r.get("history"):
+        nav.append(("history", "History"))
+    if r.get("peers"):
+        nav.append(("peers", "Peers"))
     nav += [("reconciliation", "Reconciliation"), ("assumptions", "Assumptions")]
     about = a.notes.get("about", "")
     return terms.translate("\n".join([
@@ -585,14 +772,17 @@ def page(r, downloads=()):
         "<nav aria-label='Sections'><div class='inner'>%s</div></nav><main>" % "".join(
             "<a href='#%s'>%s</a>" % (i, esc(t)) for i, t in nav),
         summary(r), rate_risk(r), plan(r), liquidity(r), portfolios(r), profitability_section(r), budget_section(r),
-        adhoc_section(r), reconciliation(r), assumptions_section(r),
+        adhoc_section(r), history_section(r), peers_section(r), reconciliation(r), assumptions_section(r),
         "</main><footer>Generated %s by Keel. Every figure is computed from the input files; none is typed. Keel "
         "runs on this computer and sends nothing anywhere.</footer></body></html>" % datetime.date.today().isoformat(),
     ]), a)
 
 
-def build(positions, assumptions, out_dir, name="Credit union", imported=None, folder=None):
-    r = results_module.compute(positions, assumptions, name, imported, folder)
+def build(positions, assumptions, out_dir, name="Credit union", imported=None, folder=None, assumption_tests=None):
+    r = results_module.compute(positions, assumptions, name, imported, folder, assumption_tests)
+    if folder:
+        from keel import history
+        history.save(folder, r["snapshot"])
     os.makedirs(out_dir, exist_ok=True)
     export.write_workbook(r, os.path.join(out_dir, "results.xlsx"))
     products = [b["line"] for b in r["plan"]["balance_sheet"] if b["line"] not in ("cash", "overnight_borrowing")]

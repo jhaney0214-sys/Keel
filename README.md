@@ -43,6 +43,22 @@ of them from it:
   the budget or profitability; save a query and every report runs it.
 - **Credit unions and banks:** `institution: bank` switches the words
   (EVE, deposits, equity), drops NCUA's tests and applies income tax.
+- **Rate forecasts:** the plan and budget can run on today's curve held,
+  on the curve's implied forwards, or on a management rate forecast, with
+  every shock on top of it; NEV stays on today's curve.
+- **Driver-based budget:** monthly new-loan volumes or target balances,
+  offering rates for new business and share products, and non-interest
+  income and expense by line with start months and growth.
+- **Key-assumption tests:** deposit betas, decay, prepayment speeds and new
+  loan spreads each moved on its own, with the effect on NII, NEV and every
+  rate-risk limit.
+- **Run history and back-testing:** every run is saved; the next one shows
+  the trend, every assumption changed since, and last quarter's forecast
+  against what actually happened (balances, administered rates, NII).
+- **Any credit union from public data:** `keel callreport` builds a
+  folder from NCUA's quarterly call report files, tied to the credit union's
+  reported totals and income, with peer benchmarks against its NCUA peer
+  group.
 
 The report opens with the findings in plain words, then the limits, then the
 detail, with a chart above each table that holds its exact numbers. It prints
@@ -66,6 +82,7 @@ python -m keel price examples/mid-cu --product used_auto --amount 22000 --term 6
 python -m keel newproduct examples/mid-cu examples/proposals/green-auto.json
 python -m keel query examples/mid-cu --by product,rate_band --measure "sum balance" --measure "wavg spread balance"
 python -m keel run examples/community-bank   # the same, for a bank
+python -m keel run examples/backtest-cu      # a quarter on: trend, assumption changes and the back-test
 ```
 
 | Sample | Size | Shape | Supervisory test |
@@ -76,8 +93,10 @@ python -m keel run examples/community-bank   # the same, for a bank
 | `sample-cu` | $560M | a hand-written `positions.csv`, for reading the format | High |
 | `community-bank` | $1.2B | a commercial bank: prime-based C&I, CRE balloons, construction, brokered CDs | (a bank: none) |
 
-`mid-cu` also has three months of `actuals.csv` for the budget variance and
-three saved queries; `large-cu` has two queries; `examples/proposals/` has
+`mid-cu` budgets on a rate forecast with monthly loan volumes, offering
+rates and expense lines, and has three months of `actuals.csv` for the
+budget variance and three saved queries; `backtest-cu` is `sample-cu` a
+quarter later, with its June run in `history/`; `large-cu` has two queries; `examples/proposals/` has
 two new-product proposals.
 
 The generated three are written as a core system exports them, calibrated to
@@ -154,6 +173,47 @@ The `Limits` sheet of the settings workbook (or `"limits"` in
 An unknown key stops the run, so a misspelled limit is never silently the
 default.
 
+## Any credit union, from its call report
+
+NCUA publishes every federally insured credit union's quarterly call
+report at <https://ncua.gov/analysis/credit-union-corporate-call-report-data/quarterly-data>.
+Download a quarter's zip, then:
+
+```bash
+python -m keel callreport call-report-data-2026-06.zip --search "valley"
+python -m keel callreport call-report-data-2026-06.zip --cu 12345 --run
+```
+
+The folder it builds has the credit union's own balances by loan, share,
+investment and borrowing line, tied to its reported total assets and
+liabilities; loan and share rates calibrated so they earn and cost exactly
+the interest and dividends it reported; and Keel's default behaviour,
+terms and costs, which the notes say plainly. `peers.json` holds twelve
+ratios against its NCUA peer group, and the report shows them. It is a
+first look from public data, not a substitute for the credit union's own
+files. Keel knows the Treasury curve for 2026-06-30; for another cycle, pass
+`--curve` a JSON of `{tenor months: rate}`.
+
+## Rate forecasts and the budget
+
+`base_case` in the settings is `flat` (today's curve held, the default),
+`forward` (implied forwards) or `forecast`, with the Forecast sheet (or
+`rate_forecast` in JSON) giving rates by month and tenor. Shocks sit on top
+of the base case, and a `rates unchanged` scenario shows the plan without
+it. The Drivers sheet sets, by product and month (a number, or YYYY-MM),
+a new-business `volume`, a month-end `balance`, or an offering `rate`; the
+Noninterest sheet itemizes fee income and operating expense with growth and
+a start month. Between and after drivers, products grow at their planned
+rate from where the last driver left them.
+
+## Key assumptions, history and back-testing
+
+Every `keel run` on a folder tests each key assumption (`--quick` skips
+it) and saves its results to `<folder>/history/<date>.json`. When an
+earlier run is there, the report adds the trend, the assumption change log
+and a back-test of the earlier forecast against today's book and
+`actuals.csv`.
+
 ## Profitability, capital and pricing
 
 Each product in the settings can carry `servicing_cost`, `fee_yield`,
@@ -217,7 +277,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 93 tests
+python -m unittest discover -s tests      # 112 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,

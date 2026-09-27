@@ -68,7 +68,14 @@ def build(positions, a, run, months=12):
                        "interest_expense": m.interest_expense, "nii": m.nii, "fee_income": m.fee_income,
                        "operating_expense": m.operating_expense, "credit_losses": m.credit_losses,
                        "income_tax": m.income_tax, "net_income": m.net_income})
-    return {"labels": labels, "products": products, "income": income, "overnight_interest": overnight}
+    lines = [{"line": x.line, "kind": x.kind, "months": [x.month(t + 1) for t in range(months)]}
+             for x in a.noninterest]
+    drivers = [{"product": product, "month": labels[m - 1] if m <= months else "month %d" % m, "plan_month": m,
+                "volume": d.get("volume"), "balance": d.get("balance"),
+                "rate": None if d.get("rate") is None else d["rate"]}
+               for product, plan in sorted(a.drivers.items()) for m, d in sorted(plan.items())]
+    return {"labels": labels, "products": products, "income": income, "overnight_interest": overnight,
+            "lines": lines, "drivers": drivers}
 
 
 def read_actuals(folder, labels, products):
@@ -87,6 +94,8 @@ def read_actuals(folder, labels, products):
         line = (row.get("line") or "").strip()
         if not month and not line:
             continue
+        if len(month) == 7 and month < labels[0]:
+            continue            # an earlier period's actuals: the back-test reads those
         if month not in labels:
             raise InputError("%s: month %r is not in the budget year (%s to %s)" % (where, month, labels[0],
                                                                                  labels[-1]))

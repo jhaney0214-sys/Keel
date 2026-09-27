@@ -6,6 +6,8 @@ Values are raw (dollars, decimals); formatting belongs to whoever shows them.
 """
 
 import dataclasses
+import json
+import os
 
 from keel import budget as budget_module, engine, measures, model, profitability, query
 from keel.curve import Scenario
@@ -70,9 +72,11 @@ def year_ratios(months, opening_assets, opening_liabilities):
             "net_worth_ratio": months[-1].equity / months[-1].assets}
 
 
-def compute(positions, a, name, imported=None, folder=None):
+def compute(positions, a, name, imported=None, folder=None, assumption_tests=None):
     """Everything, as a dict. With `folder`, also the budget variance
-    against its actuals file and its saved queries."""
+    against its actuals file, its saved queries and its run history.
+    `assumption_tests` (default: when there is a folder) runs each key
+    assumption's high and low variant through the rate-risk measures."""
     base_scenario = a.scenarios[0]
     runs = {s.name: engine.going_concern(positions, a, s) for s in a.scenarios}
     base = runs["base"]
@@ -201,8 +205,19 @@ def compute(positions, a, name, imported=None, folder=None):
         "checks": checks, "limits": limits,
         "profitability": {"lines": lines, "treasury": treasury, "totals": prof_totals,
                           "rwa": total_rwa, "capital_ratio": open_equity / total_rwa if total_rwa else None},
+        "rate_path": rate_path(a),
         "base_run": base, "book": positions, "budget": plan_budget, "variance": variance,
     }
+    from keel import history, sensitivity
+    if assumption_tests is None:
+        assumption_tests = folder is not None
+    result["sensitivity"] = sensitivity.run(positions, a) if assumption_tests else None
+    result["snapshot"] = history.snapshot(result)
+    result["history"] = history.review(folder, result["snapshot"]) if folder else None
+    result["peers"] = None
+    if folder and os.path.isfile(os.path.join(folder, "peers.json")):
+        with open(os.path.join(folder, "peers.json"), encoding="utf-8") as handle:
+            result["peers"] = json.load(handle)
     result["queries"] = []
     if folder:
         specs = query.saved(folder)
@@ -210,7 +225,54 @@ def compute(positions, a, name, imported=None, folder=None):
             data = query.Tables(positions, a, folder, imported, result)
             result["queries"] = [query.run(spec, data) for spec in specs]
     result["findings"] = findings(result)
+    if result["sensitivity"]:
+        best, move = sensitivity.driver(result["sensitivity"])
+        flips = [x for x in result["sensitivity"]["rows"] if x["flips"]]
+        if best:
+            text = ("Of the key assumptions, %s moves the result most: at %s the worst NEV decline goes from %.1f%% "
+                    "to %.1f%%." % (best["family"].lower(), best["variant"],
+                                 result["sensitivity"]["baseline"]["nev_decline_300"],
+                                 best["values"]["nev_decline_300"]))
+            text += (" %d variant%s change%s a limit's status: %s." % (
+                len(flips), "s" if len(flips) > 1 else "", "" if len(flips) > 1 else "s",
+                "; ".join("%s %s" % (x["family"].lower(), x["variant"]) for x in flips))
+                if flips else " No variant changes a limit's status.")
+            result["findings"].insert(2, ("Assumptions", text))
+    h = result["history"]
+    if h and h["backtest"]:
+        b = h["backtest"]
+        worst = max((x for x in b["products"] if x["error_pct"] is not None and x["product"] != "cash"
+                     and x["forecast_rate"]),
+                    key=lambda x: abs(x["error"]), default=None)
+        known = [x for x in b["nii"] if x["actual"] is not None]
+        text = "Against the %s run's forecast for today" % b["from"]
+        if known:
+            f = sum(x["forecast"] for x in known)
+            a_ = sum(x["actual"] for x in known)
+            text += ", net interest income came in %+.1f%% over %d months" % (100 * (a_ / f - 1), len(known))
+        if worst:
+            text += "; the largest balance miss is %s, %+.1f%% (%s)" % (
+                worst["product"].replace("_", " "), 100 * worst["error_pct"],
+                ("+" if worst["error"] >= 0 else "-") + _money(worst["error"]))
+        text += ". The short rate is %+d bp from what that run assumed." % round(
+            100 * (b["short_actual"] - b["short_forecast"]))
+        result["findings"].append(("Back-test", text))
     return result
+
+
+PATH_MONTHS = (0, 3, 6, 12, 24, 36, 60)
+PATH_TENORS = (1, 12, 60, 120)
+
+
+def rate_path(a):
+    """The base case's rates at a few months and tenors, for the report."""
+    rows = []
+    for m in PATH_MONTHS:
+        if m > a.horizon_months:
+            break
+        rows.append({"month": m, "rates": [a.curve.rate(t) + (a.path.move_bp(m, t) / 100.0 if a.path else 0.0)
+                                           for t in PATH_TENORS]})
+    return {"kind": a.base_case, "tenors": PATH_TENORS, "rows": rows}
 
 
 def _money(v):
@@ -251,9 +313,16 @@ def findings(r):
             _money(L["funding_peak"]), L["funding_peak_month"])
     out.append(("Liquidity", text))
     p = r["plan"]
-    out.append(("The plan", "Net income of %s in year one and %s in year %d; net worth goes from %.1f%% to %.1f%%." % (
-        _money(p["statements"][0]["net_income"]), _money(p["statements"][-1]["net_income"]), p["years"],
-        100 * r["opening"]["equity"] / r["opening"]["assets"], 100 * p["totals"][-1]["net_worth_ratio"])))
+    case = {"flat": "With today's curve held", "forward": "On the curve's implied forward rates",
+            "forecast": "On the rate forecast"}[r["assumptions"].base_case]
+    text = "%s, net income is %s in year one and %s in year %d; net worth goes from %.1f%% to %.1f%%." % (
+        case, _money(p["statements"][0]["net_income"]), _money(p["statements"][-1]["net_income"]), p["years"],
+        100 * r["opening"]["equity"] / r["opening"]["assets"], 100 * p["totals"][-1]["net_worth_ratio"])
+    flat = next((x for x in r["nii"] if x["scenario"] == "rates unchanged"), None)
+    if flat:
+        text += " Year-one NII is %s %s than if rates stayed where they are." % (
+            _money(r["nii_base"]["y1"] - flat["y1"]), "more" if r["nii_base"]["y1"] >= flat["y1"] else "less")
+    out.append(("The plan", text))
     a = r["assumptions"]
     P = r["profitability"]
     loans = [x for x in P["lines"] if x.side == "asset" and x.capital > 0 and x.interest > 0]
@@ -262,11 +331,10 @@ def findings(r):
         raroc = sum(x.net for x in loans) / capital if capital else 0.0
         below = [x.product.replace("_", " ") for x in sorted(loans, key=lambda x: x.raroc) if x.raroc < a.hurdle_rate]
         out.append(("Profitability", "Loans and investments return %.1f%% on the capital they use, against a %.0f%% "
-                    "hurdle%s. Treasury's rate mismatch earns %s of the run-rate net interest income." % (
+                    "hurdle%s. Treasury's rate mismatch %s %s a year of net interest income." % (
                         100 * raroc, 100 * a.hurdle_rate,
                         "; below it: %s" % ", ".join(below) if below else "; every product clears it",
-                        _money(P["totals"]["treasury"]) if P["totals"]["treasury"] >= 0 else
-                        "minus " + _money(P["totals"]["treasury"]))))
+                        "earns" if P["totals"]["treasury"] >= 0 else "costs", _money(P["totals"]["treasury"]))))
     v = r.get("variance")
     if v:
         net = next(x for x in v["statement"] if x["line"] == "Net income")

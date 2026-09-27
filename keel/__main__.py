@@ -15,6 +15,7 @@ def main(argv=None):
     run.add_argument("folder")
     run.add_argument("--out", default=None, help="report folder (default: <folder>/report)")
     run.add_argument("--name", default=None, help="default: the first sentence of the assumptions' notes")
+    run.add_argument("--quick", action="store_true", help="skip the key-assumption tests (faster)")
     what = sub.add_parser("whatif", help="run a what-if against the base and compare")
     what.add_argument("folder")
     what.add_argument("spec", help="a what-if JSON file")
@@ -47,6 +48,14 @@ def main(argv=None):
     qry.add_argument("--sort", default=None)
     qry.add_argument("--limit", type=int, default=None)
     qry.add_argument("--out", default=None, help="write .csv or .xlsx")
+    cr = sub.add_parser("callreport", help="build a folder for any credit union from NCUA's public call report data")
+    cr.add_argument("zip", help="an NCUA quarterly call report zip, e.g. call-report-data-2026-06.zip")
+    cr.add_argument("--search", default=None, help="list credit unions whose name, city or charter matches")
+    cr.add_argument("--cu", default=None, help="the charter number (CU_NUMBER) to build")
+    cr.add_argument("--out", default=None, help="default: examples/cu-<charter>")
+    cr.add_argument("--curve", default=None, help="a JSON file of {tenor months: rate percent}, when Keel does "
+                                                  "not have the cycle date's Treasury curve")
+    cr.add_argument("--run", action="store_true", help="run the report straight after building the folder")
     srv = sub.add_parser("serve", help="what-if, pricing, new-product and explore pages, on this computer only")
     srv.add_argument("folder")
     srv.add_argument("--port", type=int, default=8750)
@@ -62,9 +71,10 @@ def main(argv=None):
             return 2
         print("%s -> %s" % (args.source, args.target))
         return 0
-    if args.command in ("price", "newproduct", "query"):
+    if args.command in ("price", "newproduct", "query", "callreport"):
         try:
-            return {"price": run_price, "newproduct": run_newproduct, "query": run_query}[args.command](args)
+            return {"price": run_price, "newproduct": run_newproduct, "query": run_query,
+                    "callreport": run_callreport}[args.command](args)
         except model.InputError as error:
             print("input error: %s" % error, file=sys.stderr)
             return 2
@@ -83,7 +93,8 @@ def main(argv=None):
         print("input error: %s" % error, file=sys.stderr)
         return 2
     name = args.name or assumptions.notes.get("about", "Credit union").split(".")[0]
-    result = report.build(positions, assumptions, out, name, imported, args.folder)
+    result = report.build(positions, assumptions, out, name, imported, args.folder,
+                          assumption_tests=False if args.quick else None)
     failed = [c for c in result["checks"] if not c.passed]
     print("report -> %s  (every table: results.xlsx)" % os.path.join(out, "report.html"))
     if assumptions.institution == "bank":
@@ -147,6 +158,33 @@ def run_whatif(args):
     for note in notes:
         if note.startswith("WARNING"):
             print(note, file=sys.stderr)
+    return 0
+
+
+def run_callreport(args):
+    import json
+    from keel import callreport
+    report_data = callreport.CallReport(args.zip)
+    if args.search or not args.cu:
+        matches = report_data.search(args.search or "")
+        for cu, name, city, state, assets in matches[:40]:
+            print("%8s  %-36s %-16s %2s  $%sM" % (cu, name, city, state, "{:,.0f}".format(assets / 1e6)))
+        print("(%d of %d credit unions in the %s cycle; build one with --cu <number>)" % (
+            len(matches), len(report_data.names), report_data.as_of))
+        return 0
+    curve = None
+    if args.curve:
+        with open(args.curve, encoding="utf-8") as handle:
+            curve = {float(k): float(v) for k, v in json.load(handle).items()}
+    rows, raw, ties = callreport.build(report_data, args.cu, curve)
+    out = args.out or os.path.join("examples", "cu-%s" % args.cu)
+    callreport.write(out, rows, raw, callreport.peers(report_data, args.cu))
+    print("%s -> %s (%d positions)" % (report_data.name(args.cu), out, len(rows)))
+    for key, (reported, built) in ties.items():
+        print("  %-14s reported %16s   built %16s" % (key, "{:,.0f}".format(reported), "{:,.0f}".format(built)))
+    print("Behaviour and terms are Keel's defaults; see the notes in %s." % os.path.join(out, "assumptions.json"))
+    if args.run:
+        return main(["run", out])
     return 0
 
 

@@ -288,6 +288,74 @@ interest I_b and actual B_a and I_a over the period:
 with the sign reversed for liabilities, so each is the effect on NII. A
 product the actuals leave out counts as on budget.
 
+## Rate paths
+
+`keel/curve.py`, `RatePath`. The base case is a move from today's curve by
+month and tenor. `forward` reads today's par rates as annually compounded
+zero rates z(t) and takes the rate for T months starting in month m from
+(1 + z(m + T))^((m + T)/12) = (1 + z(m))^(m/12) (1 + f)^(T/12).
+`forecast` takes rates at chosen months and tenors: each forecast month's
+moves from today's curve are interpolated across tenors, then linearly
+across months from today (month 0, no move); after the last forecast month
+the curve holds. A scenario's shock is added to the path. Only the
+going-concern projection (NII, plan, budget, liquidity) follows the path;
+NEV, FTP and every market value discount on today's curve. A
+`rates unchanged` scenario runs the plan without the path.
+
+## Budget drivers
+
+A driver in month t sets, for that month only, the product's new-business
+volume (originated at the month's terms) or its month-end balance, and an
+offering rate that applies from t until the next rate driver. For new
+business the rate is the budgeted rate plus the scenario's own shift at
+that month (so a +100bp shock prices new business 100bp higher); for an
+administered share product it replaces the book rate and moves by the
+product's beta times the scenario's shift. After a volume or balance
+driver, the product grows at its planned rate from the balance it reached.
+Non-interest lines are annual amounts paid monthly from their start month,
+grown each plan year; when present they replace `fee_income` and
+`operating_expense`.
+
+## Key-assumption tests
+
+`keel/sensitivity.py`. Deposit betas, deposit decay and prepayment speeds
+(base and rate-driven) are each scaled by 1.5 and 0.5 across every product
+that has them, and new-business loan spreads moved by 25bp, one family at a
+time. Each variant runs year-one NII at base and +/-300bp and NEV at base
+and +/-300bp, and its NII decline, NEV decline and NEV ratio are read
+against the same limits as the report. Decay changes NEV but not the plan's
+NII, because the plan holds share balances to their growth path.
+
+## Run history and back-testing
+
+`keel/history.py`. Each run saves its headline measures, limits,
+assumptions, book and the base plan's first 24 months (balance and interest
+by product, NII, net income, the short rate it assumed). The next run
+compares: its assumptions field by field with the last run's; and, k months
+on, the last run's month-k balances and implied rates (interest over the
+month's average balance) with today's book, and its monthly NII with the
+months `actuals.csv` reports. It also shows how far the short rate moved
+from the path the last run assumed, which separates a rate surprise from a
+behavioural one.
+
+## Call report loading
+
+`keel/callreport.py`. Balances come from the 5300 accounts listed in the
+module; total assets tie as cash and other deposits (AS0009) + investment
+securities (AS0013) + other investments (AS0017) + loans (025B) - the
+allowance (AS0048, or 719) + land and buildings (007) + other fixed assets
+(008) + the NCUSIF deposit (794) + foreclosed assets (798A) + other assets
+(AS0036), with any remainder in other assets. On the June 2026 cycle that
+identity is exact for 94% of credit unions, and after the remainder every
+one of the 4,299 ties to within a cent. The call report's loan rates are the
+most common rate by type, so they are scaled together to the reported loan
+interest; share rates are not reported, so typical relative rates are
+scaled to the reported dividends; charge-off rates are scaled to reported
+net charge-offs. Year-to-date income is annualized by 12 over the cycle's
+months. On a random 25 credit unions over $20M, the model's year-one NII ran
+from 9% below to 13% above their reported, annualized NII, with a median
+about 4% above.
+
 ## Bank mode
 
 `institution: bank` changes three things. Income tax (`tax_rate`, default
@@ -327,6 +395,11 @@ A test breaks the balance sheet on purpose and confirms the first check
 fails, so the checks can't pass vacuously.
 
 ## Known simplifications
+
+- A credit union built from its call report has Keel's default behaviour,
+  terms and costs, not its own; its rate-risk results are indicative only.
+- The key-assumption tests scale each family uniformly; a deposit study
+  would give each product its own range.
 
 - FTP uses the base curve with no liquidity premium or optionality charge;
   non-maturity deposits are funded to their decay, not to a management

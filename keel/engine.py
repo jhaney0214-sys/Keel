@@ -44,14 +44,25 @@ class Flow:
 class Stepper(object):
     """Moves positions forward one month under one scenario."""
 
-    def __init__(self, assumptions, scenario):
+    def __init__(self, assumptions, scenario, path=None, drivers=None):
         self.a = assumptions
         self.s = scenario
+        self.path = path if (path is not None and getattr(scenario, "use_path", True)) else None
+        self.drivers = drivers or {}
         self.base_short = assumptions.curve.rate(assumptions.short_tenor) / 100.0
         self.start_rate = {}
 
+    def shift_bp(self, month, tenor):
+        """The total move from today's curve: the base-case path, if any, and the scenario's shock."""
+        move = self.s.shift_bp(month, tenor)
+        if self.path is not None:
+            move += self.path.move_bp(month, tenor)
+        return move
+
     def curve_rate(self, month, tenor):
-        return self.s.rate(self.a.curve, month, tenor) / 100.0
+        value = self.a.curve.rate(tenor) + self.shift_bp(month, tenor) / 100.0
+        floor = self.s.floor
+        return (value if floor is None else max(floor, value)) / 100.0
 
     def short_rate(self, month):
         return self.curve_rate(month, self.a.short_tenor)
@@ -73,7 +84,28 @@ class Stepper(object):
             p.rate = rate
         elif p.rate_type == "administered":
             start = self.start_rate.setdefault(p.id, p.rate)
-            p.rate = max(product.rate_floor, start + product.beta * (self.short_rate(month) - self.base_short))
+            planned = self.planned_rate(p.product, month)
+            if planned is not None:
+                # A budgeted offering rate replaces the book rate from its
+                # month on; a scenario moves it by the product's beta times the
+                # scenario's shift (the base case's own path is in the budget).
+                rate, _ = planned
+                p.rate = max(product.rate_floor, rate + product.beta * self.s.shift_bp(month, self.a.short_tenor) / 10000.0)
+            else:
+                p.rate = max(product.rate_floor, start + product.beta * (self.short_rate(month) - self.base_short))
+
+    def planned_rate(self, product, month):
+        """The latest budgeted rate for `product` at or before `month`, as (rate, its month), or None."""
+        plan = self.drivers.get(product)
+        if not plan:
+            return None
+        found = None
+        for m in sorted(plan):
+            if m > month:
+                break
+            if plan[m].get("rate") is not None:
+                found = (plan[m]["rate"], m)
+        return found
 
     def step(self, p, month):
         """Advance `p` by one month (month 1 is the first after the analysis date)."""
@@ -87,8 +119,8 @@ class Stepper(object):
         scheduled = prepaid = decayed = 0.0
         # Prepayment follows the long end (mortgage rates track ten years);
         # share decay follows the short end, where members compare rates.
-        shift = self.s.shift_bp(month, 120) / 100.0
-        short_shift = self.s.shift_bp(month, self.a.short_tenor) / 100.0
+        shift = self.shift_bp(month, 120) / 100.0
+        short_shift = self.shift_bp(month, self.a.short_tenor) / 100.0
         if p.amortization == "level":
             n, r = p.term_months, p.rate / 12.0
             if n <= 1:
@@ -216,7 +248,7 @@ def going_concern(positions, assumptions, scenario, stress=False, months=None):
     exists to measure."""
     a = assumptions
     months = months or a.horizon_months
-    stepper = Stepper(a, scenario)
+    stepper = Stepper(a, scenario, path=a.path, drivers=a.drivers)
     book = [p.copy() for p in positions if p.product != CASH]
     cash, _, _, equity = opening(positions)
     overnight = 0.0
@@ -229,6 +261,10 @@ def going_concern(positions, assumptions, scenario, stress=False, months=None):
         if earning(p) and (p.product not in template or p.balance > template[p.product].balance):
             template[p.product] = p
     held = {}
+    # Growth runs from an anchor: the opening balance, or the balance a
+    # budget driver last set, so a product's plan picks up where its
+    # budgeted months leave it rather than snapping back to the growth line.
+    anchor = {product: (balance, 0) for product, balance in start.items()}
     out = []
     for t in range(1, months + 1):
         flows = {p.id: stepper.step(p, t) for p in book if earning(p)}
@@ -252,15 +288,25 @@ def going_concern(positions, assumptions, scenario, stress=False, months=None):
         for product, opening_balance in start.items():
             spec = a.products[product]
             side = template[product].side
-            target = opening_balance * (1.0 + spec.growth) ** (t / 12.0)
+            anchor_balance, anchor_month = anchor[product]
+            target = anchor_balance * (1.0 + spec.growth) ** ((t - anchor_month) / 12.0)
+            plan = a.drivers.get(product, {}).get(t, {})
+            volume = None
+            if plan.get("balance") is not None:
+                target = plan["balance"]
+            elif plan.get("volume") is not None:
+                volume = plan["volume"]
             if stress and side == "liability":
+                volume = None
                 if t <= a.stress_months:
                     extra = opening_balance * spec.stress_runoff / a.stress_months
                     target = max(0.0, existing[product] - extra)
                     held[product] = target
                 else:
                     target = held.get(product, existing[product])
-            gap = target - existing[product]
+            gap = volume if volume is not None else target - existing[product]
+            if plan.get("balance") is not None or plan.get("volume") is not None:
+                anchor[product] = (existing[product] + max(gap, 0.0 if spec.new_term else gap), t)
             if spec.new_term == 0 and template[product].amortization == "nonmaturity":
                 # A pooled non-maturity product: money in or out moves the pool.
                 pools = [p for p in book if p.product == product]
@@ -288,8 +334,12 @@ def going_concern(positions, assumptions, scenario, stress=False, months=None):
         month.interest_expense += overnight_interest
         month.overnight_interest = overnight_interest
         month.interest[CASH] = cash_interest
-        month.fee_income = a.fee_income / 12.0
-        month.operating_expense = a.operating_expense / 12.0 * (1.0 + a.expense_growth) ** ((t - 1) // 12)
+        if a.noninterest:
+            month.fee_income = sum(x.month(t) for x in a.noninterest if x.kind == "income")
+            month.operating_expense = sum(x.month(t) for x in a.noninterest if x.kind == "expense")
+        else:
+            month.fee_income = a.fee_income / 12.0
+            month.operating_expense = a.operating_expense / 12.0 * (1.0 + a.expense_growth) ** ((t - 1) // 12)
         pre_tax = (month.interest_income - month.interest_expense + month.fee_income
                    - month.operating_expense - month.credit_losses)
         # Paid (or, on a loss, recovered) monthly, so cash and equity both move by it.
@@ -335,8 +385,15 @@ def _originate(template, spec, amount, month, stepper):
         amort_months=spec.new_amort_term, call_months=spec.new_call_months)
     if p.amortization == "balloon" and p.amort_months <= p.term_months:
         p.amort_months = max(p.term_months * 2, 300)
+    planned = stepper.planned_rate(template.product, month)
     if p.rate_type == "variable":
         p.rate = stepper.index_rate(p.index, month) + p.margin
+    elif planned is not None:
+        # A budgeted rate for new business is the base case's price; a
+        # scenario moves it by the scenario's own shift at that month, so a
+        # shock reaches new pricing just as it reaches the curve.
+        rate, _ = planned
+        p.rate = max(0.0, rate + stepper.s.shift_bp(month, spec.new_term) / 10000.0)
     else:
         p.rate = stepper.curve_rate(month, spec.new_term) + spec.spread
     return p

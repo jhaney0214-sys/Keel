@@ -10,3 +10,5 @@ private/
 examples/small-cu/
 examples/mid-cu/
 examples/large-cu/
+# Run history is written by every report; the back-test sample regenerates its own.
+examples/*/history/

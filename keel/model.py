@@ -192,6 +192,74 @@ class Assumptions:
     tax_rate: float = 0.0       # decimal; credit unions are exempt
     target_capital: float = 0.10  # capital held per dollar of risk-weighted assets, for allocation
     hurdle_rate: float = 0.12   # the return on allocated capital pricing aims for (RAROC)
+    base_case: str = "flat"     # flat | forward | forecast: where rates go in the plan
+    rate_forecast: list = dataclasses.field(default_factory=list)   # [(month, tenor, rate %)]
+    path: object = None         # the RatePath the plan follows, or None for flat
+    drivers: dict = dataclasses.field(default_factory=dict)   # product -> {month: {volume, balance, rate}}
+    noninterest: list = dataclasses.field(default_factory=list)   # [NonInterest]
+
+
+@dataclasses.dataclass
+class NonInterest:
+    """One line of fee income or operating expense in the budget."""
+    line: str
+    kind: str                   # income | expense
+    annual: float
+    growth: float = 0.0         # decimal, applied each plan year
+    start_month: int = 1        # a new hire or branch starts part-way through
+
+    def month(self, t):
+        if t < self.start_month:
+            return 0.0
+        return self.annual / 12.0 * (1.0 + self.growth) ** ((t - 1) // 12)
+
+
+def month_index(value, as_of, where):
+    """A plan month (1 = the month after the analysis date) from a number or a YYYY-MM."""
+    text = str(value).strip()
+    if len(text) >= 7 and text[4] == "-":
+        y, m = int(text[:4]), int(text[5:7])
+        ay, am = int(as_of[:4]), int(as_of[5:7])
+        n = (y - ay) * 12 + (m - am)
+    else:
+        try:
+            n = int(float(text))
+        except ValueError:
+            raise InputError("%s: month %r is neither a number nor YYYY-MM" % (where, value))
+    if n < 1:
+        raise InputError("%s: month %r is not after the analysis date" % (where, value))
+    return n
+
+
+def _drivers(rows, as_of, products):
+    out = {}
+    for n, row in enumerate(rows, 1):
+        where = "assumptions: driver %d" % n
+        product = row.get("product")
+        if product not in products:
+            raise InputError("%s: product %r is not in the products" % (where, product))
+        month = month_index(row.get("month"), as_of, where)
+        plan = out.setdefault(product, {}).setdefault(month, {})
+        for key in ("volume", "balance", "rate"):
+            value = row.get(key)
+            if value not in (None, ""):
+                plan[key] = float(value) / 100.0 if key == "rate" else float(value)
+        if "volume" in plan and "balance" in plan:
+            raise InputError("%s: give a volume or a balance for %s in month %d, not both" % (where, product, month))
+    return out
+
+
+def _noninterest(rows, as_of):
+    out = []
+    for n, row in enumerate(rows, 1):
+        kind = str(row.get("kind", "expense")).strip().lower()
+        if kind not in ("income", "expense"):
+            raise InputError("assumptions: non-interest line %d: kind must be income or expense" % n)
+        out.append(NonInterest(line=str(row.get("line") or "line %d" % n), kind=kind, annual=float(row["annual"]),
+                               growth=_decimal(row.get("growth") or 0),
+                               start_month=month_index(row.get("start_month") or 1, as_of,
+                                                       "assumptions: non-interest line %d" % n)))
+    return out
 
 
 def read_assumptions(path):
@@ -222,7 +290,29 @@ def parse_assumptions(raw):
     if institution not in INSTITUTIONS:
         raise InputError("assumptions: institution must be credit_union or bank, not %r" % institution)
     tax_default = 21.0 if institution == "bank" else 0.0
+    base_case = raw.get("base_case", "flat") or "flat"
+    forecast = [(month_index(r["month"], raw["as_of"], "rate forecast"), float(r["tenor_months"]), float(r["rate"]))
+                for r in raw.get("rate_forecast", [])]
+    path = None
+    if base_case != "flat":
+        from keel.curve import RatePath
+        try:
+            path = RatePath(base_case, Curve(raw["curve"]), forecast)
+        except ValueError as error:
+            raise InputError("assumptions: %s" % error)
+    noninterest = _noninterest(raw.get("noninterest", []), raw["as_of"])
+    fee_income = float(raw.get("fee_income", 0))
+    operating_expense = float(raw.get("operating_expense", 0))
+    if noninterest:
+        # Itemized lines replace the two totals; the totals are kept for the
+        # run-rate views (profitability) as the lines' first-year sums.
+        fee_income = sum(x.annual for x in noninterest if x.kind == "income")
+        operating_expense = sum(x.annual for x in noninterest if x.kind == "expense")
+    if base_case != "flat":
+        scenarios.append(Scenario("rates unchanged", 0, 0, floor, use_path=False))
     return Assumptions(
+        base_case=base_case, rate_forecast=forecast, path=path,
+        drivers=_drivers(raw.get("drivers", []), raw["as_of"], products), noninterest=noninterest,
         institution=institution, tax_rate=_decimal(raw.get("tax_rate", tax_default)),
         target_capital=_decimal(raw.get("target_capital", 10.0)),
         hurdle_rate=_decimal(raw.get("hurdle_rate", 12.0)),
@@ -230,8 +320,7 @@ def parse_assumptions(raw):
         horizon_months=int(raw.get("horizon_months", 60)),
         nev_max_months=int(raw.get("nev_max_months", 360)), rate_floor=floor,
         short_tenor=int(raw.get("short_tenor_months", 1)),
-        fee_income=float(raw.get("fee_income", 0)),
-        operating_expense=float(raw.get("operating_expense", 0)),
+        fee_income=fee_income, operating_expense=operating_expense,
         expense_growth=_decimal(raw.get("expense_growth", 0)),
         cash_minimum=float(raw.get("cash_minimum", 0)),
         overnight_spread=_decimal(raw.get("overnight_spread", 0)),

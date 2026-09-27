@@ -30,6 +30,7 @@ from keel.model import InputError, Product
 SETTINGS = (  # key, type, note for the workbook
     ("as_of", "date", "The analysis date: positions are as of this day."),
     ("institution", "text", "credit_union or bank: sets the regulator's tests and the words used."),
+    ("base_case", "text", "flat (today's curve held), forward (implied forwards) or forecast (the Forecast sheet)."),
     ("horizon_months", "int", "How far the plan and NII run."),
     ("nev_max_months", "int", "How far runoff cash flows run for NEV."),
     ("rate_floor", "float", "No scenario rate goes below this, in percent."),
@@ -45,7 +46,12 @@ SETTINGS = (  # key, type, note for the workbook
     ("hurdle_rate", "float", "Return on allocated capital that pricing aims for (RAROC hurdle), percent."),
 )
 PRODUCT_FIELDS = [f.name for f in dataclasses.fields(Product) if f.name != "name"]
-SHEETS = ("Settings", "Curve", "Indexes", "Products", "Scenarios", "Contingent", "Limits", "Notes")
+SHEETS = ("Settings", "Curve", "Indexes", "Products", "Scenarios", "Contingent", "Limits", "Forecast", "Drivers",
+          "Noninterest", "Notes")
+#: Sheets read as plain rows into a list of dicts: (sheet, raw key, columns).
+ROW_SHEETS = (("Forecast", "rate_forecast", ("month", "tenor_months", "rate")),
+              ("Drivers", "drivers", ("product", "month", "volume", "balance", "rate")),
+              ("Noninterest", "noninterest", ("line", "kind", "annual", "growth", "start_month")))
 
 
 def find(folder):
@@ -199,6 +205,21 @@ def from_workbook(book, path="settings workbook"):
             value = _number(r.get("value"), "float", "%s, Limits, %s" % (path, key))
             if value is not None:
                 raw["limits"][key] = value
+    for sheet, key, columns in ROW_SHEETS:
+        rows = []
+        for r in xlsx.table(book.get(sheet, [])):
+            row = {}
+            for c in columns:
+                v = r.get(c)
+                if v in (None, ""):
+                    continue
+                if c == "month" and isinstance(v, float) and v > 20000:
+                    v = xlsx.excel_date(v)[:7]       # Excel turned a typed YYYY-MM into a date
+                row[c] = xlsx.as_text(v) if c in ("product", "line", "kind", "month") else v
+            if row:
+                rows.append(row)
+        if rows:
+            raw[key] = rows
     raw["notes"] = {xlsx.as_text(r.get("key")): xlsx.as_text(r.get("text"))
                     for r in xlsx.table(book.get("Notes", [])) if xlsx.as_text(r.get("key"))}
     for key in ("as_of",):
@@ -237,7 +258,10 @@ def to_workbook(raw):
     limits.append(["warning_band", set_limits.get("warning_band"),
                    "How close to a limit counts as near it, percent of the limit. Default 10."])
     notes_sheet = [["key", "text"]] + [[k, v] for k, v in raw.get("notes", {}).items()]
-    return dict(zip(SHEETS, (settings, curve, indexes, products, scenarios, contingent, limits, notes_sheet)))
+    extra = [[list(columns)] + [[r.get(c) for c in columns] for r in raw.get(key, [])]
+             for _, key, columns in ROW_SHEETS]
+    return dict(zip(SHEETS, (settings, curve, indexes, products, scenarios, contingent, limits) + tuple(extra)
+                    + (notes_sheet,)))
 
 
 def convert(source, target):

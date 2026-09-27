@@ -439,6 +439,7 @@ class Generator(object):
                 {"name": "Central Liquidity Facility (through a corporate credit union)",
                  "capacity": round(assets * 0.04, -3)}]},
         }
+        spec.update(sample_extras.budget_spec(self.name, spec))
         for stale in ("assumptions.json", "assumptions.xlsx"):
             if os.path.isfile(os.path.join(self.dir, stale)):
                 os.remove(os.path.join(self.dir, stale))
