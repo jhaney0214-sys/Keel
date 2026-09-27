@@ -109,7 +109,7 @@ class Report(unittest.TestCase):
         for text in ("id='summary'", "Policy limits", "<svg class=\"chart\"", "Net interest margin",
                      "24 months vs base", "results.xlsx", "@media print"):
             self.assertIn(text, self.html)
-        self.assertEqual(self.html.count("<svg class=\"chart\""), 6)
+        self.assertEqual(self.html.count("<svg class=\"chart\""), 7)
 
     def test_every_status_shows_a_word_not_only_a_colour(self):
         for x in self.result["limits"]:

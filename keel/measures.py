@@ -143,6 +143,7 @@ def income_statement(months):
         "fee_income": total(months, "fee_income"),
         "operating_expense": total(months, "operating_expense"),
         "credit_losses": total(months, "credit_losses"),
+        "income_tax": total(months, "income_tax"),
         "net_income": total(months, "net_income"),
     }
 

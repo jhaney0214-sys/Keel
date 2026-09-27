@@ -6,6 +6,8 @@ rounded thousands, so a formula built on them adds up to the cent. It reads
 the same `results.compute` output the HTML does.
 """
 
+import re
+
 from keel import xlsx
 
 
@@ -63,6 +65,30 @@ def sheets(r):
             for x in imported.summaries["loans"]]
         out["Certificates"] = [["band", "count", "balance", "rate_pct"]] + [
             [x["band"], x["count"], x["balance"], x["rate"]] for x in imported.summaries["certificates"]]
+    P = r["profitability"]
+    out["Profitability"] = [["product", "side", "balance", "interest", "ftp", "spread", "capital_credit", "fees",
+                             "servicing", "expected_loss", "tax", "net", "rwa", "capital", "raroc_pct"]] + [
+        [x.product, x.side, x.balance, x.interest, x.ftp, x.spread, x.capital_credit, x.fees, x.servicing,
+         x.expected_loss, x.tax, x.net, x.rwa, x.capital, _pct(x.raroc)] for x in P["lines"]] + [
+        [], ["treasury margin", "", "", "", "", P["treasury"]]] + [
+        [key, "", "", "", "", value] for key, value in P["totals"].items()]
+    b = r["budget"]
+    for title, key in (("Budget balances", "average"), ("Budget interest", "interest")):
+        out[title] = [["product", "side"] + b["labels"]] + [[p["product"], p["side"]] + p[key] for p in b["products"]]
+    keys = ("interest_income", "interest_expense", "nii", "fee_income", "operating_expense", "credit_losses",
+            "income_tax", "net_income")
+    out["Budget income"] = [["line"] + b["labels"]] + [[key] + [m[key] for m in b["income"]] for key in keys]
+    v = r.get("variance")
+    if v:
+        out["Variance"] = ([["product", "side", "budget_balance", "actual_balance", "budget_interest",
+                             "actual_interest", "volume", "rate", "nii_variance"]]
+                           + [[x["product"], x["side"], x["budget_balance"], x["actual_balance"], x["budget_interest"],
+                               x["actual_interest"], x["volume"], x["rate"], x["nii_variance"]] for x in v["products"]]
+                           + [[], ["line", "budget", "actual", "better (worse)"]]
+                           + [[x["line"], x["budget"], x["actual"], x["variance"]] for x in v["statement"]])
+    for i, q in enumerate(r.get("queries") or [], 1):
+        title = re.sub(r"[\[\]:*?/\\]", "-", "Q%d %s" % (i, q["name"]))[:31]   # characters Excel refuses
+        out[title] = [q["columns"]] + q["rows"] + ([q["total"]] if q["total"] else [])
     out["Checks"] = [["check", "passed", "detail"]] + [[c.name, c.passed, c.detail] for c in r["checks"]]
     months = r["base_run"]
     out["Monthly base"] = [["month", "cash", "overnight", "interest_income", "interest_expense", "fee_income",

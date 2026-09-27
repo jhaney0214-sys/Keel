@@ -165,6 +165,12 @@ def key_measures(positions, a):
     ] + [(x.label, x, "limit") for x in limits]
 
 
+def _capital_ratio(positions, a):
+    from keel import profitability
+    rwa = profitability.rwa(positions, a)
+    return 100 * engine.opening(positions)[3] / rwa if rwa else None
+
+
 def _limits(positions, a, run, runs, nevs, nev_base, stressed):
     """Every policy limit, measured the way the full report measures it, from
     the runs already made plus the few the limits add (+/-200bp, -300bp NEV)."""
@@ -189,6 +195,7 @@ def _limits(positions, a, run, runs, nevs, nev_base, stressed):
         "loans_to_shares_max": 100 * ratios["loans_to_shares"],
         "borrowings_to_assets_max": 100 * ratios["borrowings_to_assets"],
         "survival_months_min": results.survival_value(measures.survival(stressed)),
+        "capital_to_rwa_min": _capital_ratio(positions, a),
     }
     return results.evaluate_limits(measured, a)
 

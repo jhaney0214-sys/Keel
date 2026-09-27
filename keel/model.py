@@ -126,6 +126,12 @@ class Product:
     liquid: bool = False          # an investment that can be sold or pledged
     haircut: float = 0.0          # its liquidity-stress haircut
     stress_runoff: float = 0.0    # extra share of balance lost over the stress period
+    # Profitability, capital and pricing. None means "use the rule": see
+    # profitability.risk_weight.
+    risk_weight: float = None     # capital allocated per dollar, before the target ratio
+    servicing_cost: float = 0.0   # annual operating cost, share of balance
+    fee_yield: float = 0.0        # annual fee income, share of balance
+    origination_cost: float = 0.0 # one-time cost of new business, share of the amount
 
 
 def _decimal(value):
@@ -137,7 +143,8 @@ def _decimal(value):
 #: shares 10.1%; `test_every_percent_field_is_converted` now guards the list.
 PERCENT_FIELDS = ("cpr", "cpr_per_100bp", "cpr_floor", "cpr_cap", "runoff", "runoff_per_100bp",
                   "beta", "rate_floor", "spread", "discount_spread", "growth", "charge_off",
-                  "haircut", "stress_runoff", "call_threshold")
+                  "haircut", "stress_runoff", "call_threshold", "risk_weight", "servicing_cost",
+                  "fee_yield", "origination_cost")
 
 
 #: Policy limits: (key, kind, default, label). "max" limits cap a measure,
@@ -154,7 +161,9 @@ LIMITS = (
     ("loans_to_shares_max", "max", 95.0, "Loans to shares"),
     ("borrowings_to_assets_max", "max", 25.0, "Borrowings to assets"),
     ("survival_months_min", "min", 6.0, "Months of liquidity under the stress"),
+    ("capital_to_rwa_min", "min", 10.0, "Net worth to risk-weighted assets"),
 )
+INSTITUTIONS = ("credit_union", "bank")
 WARNING_BAND = 10.0   # percent of a limit counted as "near" it
 
 
@@ -179,6 +188,10 @@ class Assumptions:
     notes: dict = dataclasses.field(default_factory=dict)
     limits: dict = dataclasses.field(default_factory=dict)       # key -> value, as set
     warning_band: float = WARNING_BAND
+    institution: str = "credit_union"
+    tax_rate: float = 0.0       # decimal; credit unions are exempt
+    target_capital: float = 0.10  # capital held per dollar of risk-weighted assets, for allocation
+    hurdle_rate: float = 0.12   # the return on allocated capital pricing aims for (RAROC)
 
 
 def read_assumptions(path):
@@ -205,7 +218,14 @@ def parse_assumptions(raw):
         scenarios.append(Scenario(spec["name"], spec.get("shock_bp", 0), spec.get("ramp_months", 0), floor,
                                   spec.get("shape")))
     liquidity = raw.get("liquidity", {})
+    institution = raw.get("institution", "credit_union")
+    if institution not in INSTITUTIONS:
+        raise InputError("assumptions: institution must be credit_union or bank, not %r" % institution)
+    tax_default = 21.0 if institution == "bank" else 0.0
     return Assumptions(
+        institution=institution, tax_rate=_decimal(raw.get("tax_rate", tax_default)),
+        target_capital=_decimal(raw.get("target_capital", 10.0)),
+        hurdle_rate=_decimal(raw.get("hurdle_rate", 12.0)),
         as_of=raw["as_of"], curve=Curve(raw["curve"]), indexes=indexes, products=products,
         horizon_months=int(raw.get("horizon_months", 60)),
         nev_max_months=int(raw.get("nev_max_months", 360)), rate_floor=floor,

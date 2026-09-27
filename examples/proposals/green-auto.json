@@ -1,0 +1,19 @@
+{
+  "name": "72-month green auto loan",
+  "product": "green_auto",
+  "like": "new_auto",
+  "side": "asset",
+  "rate": 5.49,
+  "term_months": 72,
+  "amortization": "level",
+  "launch_balance": 10000000,
+  "growth": 40,
+  "average_size": 32000,
+  "behaviour": {
+    "cpr": 16,
+    "charge_off": 0.45,
+    "servicing_cost": 0.55,
+    "origination_cost": 1.0,
+    "risk_weight": 75
+  }
+}

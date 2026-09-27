@@ -7,7 +7,7 @@ Values are raw (dollars, decimals); formatting belongs to whoever shows them.
 
 import dataclasses
 
-from keel import engine, measures, model
+from keel import budget as budget_module, engine, measures, model, profitability, query
 from keel.curve import Scenario
 from keel.engine import CASH
 
@@ -70,8 +70,9 @@ def year_ratios(months, opening_assets, opening_liabilities):
             "net_worth_ratio": months[-1].equity / months[-1].assets}
 
 
-def compute(positions, a, name, imported=None):
-    """Everything, as a dict."""
+def compute(positions, a, name, imported=None, folder=None):
+    """Everything, as a dict. With `folder`, also the budget variance
+    against its actuals file and its saved queries."""
     base_scenario = a.scenarios[0]
     runs = {s.name: engine.going_concern(positions, a, s) for s in a.scenarios}
     base = runs["base"]
@@ -141,6 +142,21 @@ def compute(positions, a, name, imported=None):
                                              "{:,.2f}".format(tie.detail), "{:,.2f}".format(tie.ledger),
                                              tie.difference)))
 
+    # ---- product profitability and capital
+    lines, treasury, prof_totals = profitability.product_lines(positions, a)
+    checks.append(profitability.check_ftp(lines, prof_totals))
+    total_rwa = profitability.rwa(positions, a)
+
+    # ---- budget
+    plan_budget = budget_module.build(positions, a, base)
+    checks.append(budget_module.check_budget(plan_budget, base))
+    variance = None
+    if folder:
+        actuals = budget_module.read_actuals(folder, plan_budget["labels"],
+                                             [p["product"] for p in plan_budget["products"]])
+        if actuals:
+            variance = budget_module.variance(plan_budget, actuals)
+
     # ---- limits
     parallel = {r["scenario"]: r for r in nii_rows if r["shock_bp"] is not None and r["ramp"] == 0}
     nev_by = {r["scenario"]: r for r in nev_rows}
@@ -156,6 +172,7 @@ def compute(positions, a, name, imported=None):
         "loans_to_shares_max": 100 * liq_ratios["loans_to_shares"],
         "borrowings_to_assets_max": 100 * liq_ratios["borrowings_to_assets"],
         "survival_months_min": survival_value(survival),
+        "capital_to_rwa_min": 100 * open_equity / total_rwa if total_rwa else None,
     }
     limits = evaluate_limits(measured, a)
 
@@ -182,8 +199,16 @@ def compute(positions, a, name, imported=None):
         "securities": securities, "security_groups": measures.by_product(securities),
         "imported": imported, "positions": len(positions),
         "checks": checks, "limits": limits,
-        "base_run": base,
+        "profitability": {"lines": lines, "treasury": treasury, "totals": prof_totals,
+                          "rwa": total_rwa, "capital_ratio": open_equity / total_rwa if total_rwa else None},
+        "base_run": base, "book": positions, "budget": plan_budget, "variance": variance,
     }
+    result["queries"] = []
+    if folder:
+        specs = query.saved(folder)
+        if specs:
+            data = query.Tables(positions, a, folder, imported, result)
+            result["queries"] = [query.run(spec, data) for spec in specs]
     result["findings"] = findings(result)
     return result
 
@@ -208,11 +233,13 @@ def findings(r):
         "; every shock raises it" if worst["y1_change"] >= 0 else "")))
     t = r["test"]
     nev_worst = min((x for x in r["nev"] if x["scenario"] in ("+300", "-300")), key=lambda x: x["ratio"])
-    out.append(("Economic value", "On the credit union's own assumptions, the NEV ratio falls to %.1f%% in the %s "
-                "shock. NCUA's supervisory test, with its standardized share values, rates the ratio %s (%.1f%%) "
-                "and the change %s (%.0f%%)." % (100 * nev_worst["ratio"], nev_worst["scenario"] + "bp",
-                                                  t["ratio_rating"], 100 * t["post_shock_ratio"],
-                                                  t["sensitivity_rating"], -100 * t["sensitivity_value_decline"])))
+    text = "On the credit union's own assumptions, the NEV ratio falls to %.1f%% in the %s shock." % (
+        100 * nev_worst["ratio"], nev_worst["scenario"] + "bp")
+    if r["assumptions"].institution != "bank":
+        text += (" NCUA's supervisory test, with its standardized share values, rates the ratio %s (%.1f%%) and the "
+                 "change %s (%.0f%%)." % (t["ratio_rating"], 100 * t["post_shock_ratio"], t["sensitivity_rating"],
+                                          -100 * t["sensitivity_value_decline"]))
+    out.append(("Economic value", text))
     L = r["liquidity"]
     if L["survival"] is None:
         text = "Liquidity lasts through the first year of the %d-month stress; its low point is %s, in month %d." % (
@@ -227,6 +254,29 @@ def findings(r):
     out.append(("The plan", "Net income of %s in year one and %s in year %d; net worth goes from %.1f%% to %.1f%%." % (
         _money(p["statements"][0]["net_income"]), _money(p["statements"][-1]["net_income"]), p["years"],
         100 * r["opening"]["equity"] / r["opening"]["assets"], 100 * p["totals"][-1]["net_worth_ratio"])))
+    a = r["assumptions"]
+    P = r["profitability"]
+    loans = [x for x in P["lines"] if x.side == "asset" and x.capital > 0 and x.interest > 0]
+    if loans:
+        capital = sum(x.capital for x in loans)
+        raroc = sum(x.net for x in loans) / capital if capital else 0.0
+        below = [x.product.replace("_", " ") for x in sorted(loans, key=lambda x: x.raroc) if x.raroc < a.hurdle_rate]
+        out.append(("Profitability", "Loans and investments return %.1f%% on the capital they use, against a %.0f%% "
+                    "hurdle%s. Treasury's rate mismatch earns %s of the run-rate net interest income." % (
+                        100 * raroc, 100 * a.hurdle_rate,
+                        "; below it: %s" % ", ".join(below) if below else "; every product clears it",
+                        _money(P["totals"]["treasury"]) if P["totals"]["treasury"] >= 0 else
+                        "minus " + _money(P["totals"]["treasury"]))))
+    v = r.get("variance")
+    if v:
+        net = next(x for x in v["statement"] if x["line"] == "Net income")
+        top = max(v["products"], key=lambda x: abs(x["nii_variance"])) if v["products"] else None
+        out.append(("Budget", "Through %s, net income is %s %s budget%s." % (
+            v["through"], _money(net["variance"]), "ahead of" if net["variance"] >= 0 else "behind",
+            "; the largest single effect on net interest income is %s, %s %s (volume %s, rate %s)" % (
+                top["product"].replace("_", " "), "up" if top["nii_variance"] >= 0 else "down",
+                _money(top["nii_variance"]), ("+" if top["volume"] >= 0 else "-") + _money(top["volume"]),
+                ("+" if top["rate"] >= 0 else "-") + _money(top["rate"])) if top else "")))
     breach = [x for x in r["limits"] if x.status == "breach"]
     near = [x for x in r["limits"] if x.status == "near"]
     defaults = sum(1 for x in r["limits"] if x.default)
@@ -238,7 +288,8 @@ def findings(r):
     if near:
         text += " Near a limit: %s." % "; ".join(x.label for x in near)
     if defaults:
-        text += " %d of them are Keel's defaults, not the board's; set them in the Limits sheet." % defaults
+        text += " %d of them %s Keel's default%s, not the board's; set %s in the Limits sheet." % (
+            defaults, "is" if defaults == 1 else "are", "" if defaults == 1 else "s", "it" if defaults == 1 else "them")
     out.append(("Limits", text))
     failed = [c for c in r["checks"] if not c.passed]
     out.append(("Reconciliation", "All %d checks pass: the rate-risk, plan and liquidity numbers are one model%s." % (

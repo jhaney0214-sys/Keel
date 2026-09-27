@@ -1,0 +1,15 @@
+{
+  "name": "13-month certificate special",
+  "product": "cd_special",
+  "like": "certificates",
+  "side": "liability",
+  "rate": 4.35,
+  "term_months": 13,
+  "amortization": "bullet",
+  "launch_balance": 25000000,
+  "growth": 0,
+  "average_size": 28000,
+  "behaviour": {
+    "servicing_cost": 0.15
+  }
+}

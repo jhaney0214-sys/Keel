@@ -1,11 +1,12 @@
 # Keel
 
-**ALM, the plan and liquidity for credit unions, from one projection, so the three always agree.**
+**ALM, FP&A, liquidity, profitability and pricing for credit unions and banks, from one projection, so they always agree.**
 
-A credit union's rate-risk model, budget and liquidity plan usually live in
-different places, and when they are asked the same question, such as next
-year's NII, they give different answers. Keel runs one monthly projection of
-every position and reads all three from it:
+An institution's rate-risk model, budget, liquidity plan, profitability
+system and pricing sheets usually live in different places, and when they
+are asked the same question, such as next year's NII, they give different
+answers. Keel runs one monthly projection of every position and reads all
+of them from it:
 
 - **Interest-rate risk:** NII by scenario for years 1 and 2; NEV under
   parallel shocks of ±100 to ±300bp and under curve-shape scenarios; the
@@ -26,6 +27,22 @@ every position and reads all three from it:
   never colour alone). Limits not set are Keel's defaults, and say so.
 - **What-ifs:** change an assumption or the balance sheet and see every
   measure and limit move, side by side with the base.
+- **Funds transfer pricing and product profitability:** every position
+  funded at a rate matched to its own cash flows; each product's spread,
+  fees, servicing cost, expected loss, allocated capital, ROA and RAROC;
+  treasury's margin from the rate mismatch; all of it adding back to NII.
+- **Product capital:** risk-weighted assets by product and a risk-based
+  capital ratio, with each product's weight set in the settings.
+- **RAROC pricing calculator:** a loan's or deposit's life economics at a
+  rate, the rate that earns the hurdle, and the break-even rate.
+- **New-product spread analysis:** a proposed product's unit economics, its
+  own path through the plan, and the whole book with and without it.
+- **Budget:** the first plan year by month and by product, and, given an
+  actuals file, variance against it split into volume and rate.
+- **Ad hoc reporting:** group, filter and total the book, the core files,
+  the budget or profitability; save a query and every report runs it.
+- **Credit unions and banks:** `institution: bank` switches the words
+  (EVE, deposits, equity), drops NCUA's tests and applies income tax.
 
 The report opens with the findings in plain words, then the limits, then the
 detail, with a chart above each table that holds its exact numbers. It prints
@@ -44,7 +61,11 @@ is written for the model validator.
 python tools/make_samples.py                 # three synthetic credit unions, in about two seconds
 python -m keel run examples/mid-cu           # -> examples/mid-cu/report/report.html
 python -m keel whatif examples/mid-cu examples/whatifs/fhlb-for-auto-growth.json
-python -m keel serve examples/mid-cu         # a what-if page at http://127.0.0.1:8750/
+python -m keel serve examples/mid-cu         # what-if, pricing, new product, explore: http://127.0.0.1:8750/
+python -m keel price examples/mid-cu --product used_auto --amount 22000 --term 60 --rate 7.25
+python -m keel newproduct examples/mid-cu examples/proposals/green-auto.json
+python -m keel query examples/mid-cu --by product,rate_band --measure "sum balance" --measure "wavg spread balance"
+python -m keel run examples/community-bank   # the same, for a bank
 ```
 
 | Sample | Size | Shape | Supervisory test |
@@ -53,6 +74,11 @@ python -m keel serve examples/mid-cu         # a what-if page at http://127.0.0.
 | `mid-cu` | $560M | close to the system's own mix; **CSV data, Excel settings** | Moderate |
 | `large-cu` | $2.4B | mortgage-heavy, certificate-funded, FHLB borrowing; everything in Excel | High |
 | `sample-cu` | $560M | a hand-written `positions.csv`, for reading the format | High |
+| `community-bank` | $1.2B | a commercial bank: prime-based C&I, CRE balloons, construction, brokered CDs | (a bank: none) |
+
+`mid-cu` also has three months of `actuals.csv` for the budget variance and
+three saved queries; `large-cu` has two queries; `examples/proposals/` has
+two new-product proposals.
 
 The generated three are written as a core system exports them, calibrated to
 NCUA's Quarterly Credit Union Data Summary for 2026Q2. **Every figure is
@@ -128,6 +154,40 @@ The `Limits` sheet of the settings workbook (or `"limits"` in
 An unknown key stops the run, so a misspelled limit is never silently the
 default.
 
+## Profitability, capital and pricing
+
+Each product in the settings can carry `servicing_cost`, `fee_yield`,
+`origination_cost` (percent of balance, or of the amount for origination)
+and `risk_weight` (percent). The settings hold `target_capital` (capital per
+dollar of risk-weighted assets, default 10%), `hurdle_rate` (default 12%)
+and `tax_rate` (0% for a credit union, 21% for a bank unless set). Without a
+risk weight a product counts at 100% (20% for a liquid investment, 0% for
+cash and liabilities).
+
+The report's Profitability section shows each product's spread over its
+FTP, its costs and RAROC, and how the products' spreads plus treasury's
+margin make up net interest income. `keel price` and the Pricing page price
+one deal; `keel newproduct` and the New product page analyse a launch.
+
+## Budget and actuals
+
+The Budget section is the base plan's first year by month. Put
+`actuals.csv` (or .xlsx) in the folder, with `month` (YYYY-MM), `line` (a
+product, or `fee_income`, `operating_expense`, `credit_losses`,
+`income_tax`), `average_balance` and `amount`, and the report adds
+year-to-date variance by product, split into volume and rate.
+
+## Ad hoc reports
+
+```bash
+python -m keel query <folder> --table loans --by product_code --measure count --measure "sum current_balance" --where "days_delinquent >= 60" --out delinquent.xlsx
+```
+
+Tables: `positions` (with FTP, spread, risk weight, capital, term and rate
+bands), `profitability`, `budget`, `projection`, and each core file. Save a
+query as JSON in `<folder>/queries/` (or with the Explore page's Save
+button) and every report and `results.xlsx` include it.
+
 ## What-ifs
 
 A what-if is a small JSON file: `assumptions` changed by dotted path (in
@@ -157,7 +217,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 70 tests
+python -m unittest discover -s tests      # 93 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,

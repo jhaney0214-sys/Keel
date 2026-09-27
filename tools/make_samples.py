@@ -426,7 +426,8 @@ class Generator(object):
             "fee_income": round(assets * p["fee_income"], -3),
             "operating_expense": round(assets * p["opex"], -3), "expense_growth": 3.0,
             "cash_minimum": round(assets * 0.025, -3), "overnight_spread": 0.25,
-            "products": BEHAVIOUR,
+            "products": sample_extras.add_costs(json.loads(json.dumps(BEHAVIOUR))),
+            "target_capital": 10.0, "hurdle_rate": 12.0,
             "extra_scenarios": [{"name": "ramp +200", "shock_bp": 200, "ramp_months": 12},
                                 {"name": "ramp -200", "shock_bp": -200, "ramp_months": 12},
                                 {"name": "flattener", "shape": {"1": 200, "24": 100, "120": 0}},
@@ -528,10 +529,14 @@ def _cell(value):
     return int(number) if str(value).isdigit() else number
 
 
+import sample_extras  # noqa: E402  (after BEHAVIOUR and the path setup above)
+
+
 def main():
     for name, profile in PROFILES.items():
         counts = Generator(name, profile).run()
         print("%-9s %s" % (name, ", ".join("%d %s" % (v, k) for k, v in counts.items())))
+    sample_extras.run()
 
 
 if __name__ == "__main__":

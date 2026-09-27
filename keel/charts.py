@@ -25,16 +25,19 @@ def _esc(text):
     return html.escape(str(text), quote=True)
 
 
-def diverging_bars(rows, fmt, title, limit=None, limit_label="limit", both_sides=True):
+def diverging_bars(rows, fmt, title, limit=None, limit_label="limit", both_sides=True, reference=None,
+                   reference_label=""):
     """Horizontal bars about zero. `rows` are (label, value, tooltip). `limit`
     (a positive number in the values' units) draws a dashed line at -limit and,
     with `both_sides`, at +limit. Each side of zero is only as wide as its
     data (and the limit) needs, so a one-sided limit does not waste half the
     chart on empty space."""
-    row_h, top, left, right = 24, 44, 104, 56
+    row_h, top, right = 24, 44, 56
+    left = max(104, 7 * max([len(str(label)) for label, _, _ in rows] + [0]) + 18)
     height = top + row_h * len(rows) + 24
     lows = [-v for _, v, _ in rows if v < 0] + ([limit] if limit else [])
-    highs = [v for _, v, _ in rows if v > 0] + ([limit] if limit and both_sides else [])
+    highs = [v for _, v, _ in rows if v > 0] + ([limit] if limit and both_sides else []) + (
+        [reference] if reference and reference > 0 else [])
     neg = max(lows + [0.0]) * 1.2
     pos = max(highs + [0.0]) * 1.2
     if neg + pos == 0:
@@ -58,6 +61,11 @@ def diverging_bars(rows, fmt, title, limit=None, limit_label="limit", both_sides
             parts.append('<text class="c-tick" x="%.1f" y="%d" text-anchor="%s">%s</text>' % (
                 px + (4 if sign < 0 else -4), top - 12, "start" if sign < 0 else "end",
                 _esc("%s %s" % (limit_label, fmt(sign * limit)))))
+    if reference is not None:
+        px = zero + reference * scale
+        parts.append('<line class="c-limit" x1="%.1f" y1="%d" x2="%.1f" y2="%d"/>' % (px, top - 10, px, height - 20))
+        parts.append('<text class="c-tick" x="%.1f" y="%d" text-anchor="end">%s</text>' % (
+            px - 4, top - 12, _esc(reference_label)))
     for i, (label, value, tip) in enumerate(rows):
         y = top + i * row_h
         w = abs(value) * scale

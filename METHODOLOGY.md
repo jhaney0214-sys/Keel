@@ -225,6 +225,78 @@ limit below it, and a minimum when within that band above it. The what-if
 page measures the same limits the same way from its own runs; a test holds
 the two to the same values.
 
+## Funds transfer pricing and profitability
+
+`keel/profitability.py`. Every position is funded at a rate matched to its
+own base-scenario runoff (the strip-funding method):
+
+    FTP = sum(P_t * t * r(t)) / sum(P_t * t)
+
+where P_t is the principal (with charge-offs) paid in month t and r(t) the
+base curve at t months. A variable-rate position is funded at the curve at
+its next reset; cash at the short rate; positions with no rate and no term
+are not funded. Non-maturity shares are funded by their own decay flows.
+
+Profitability is a run-rate on today's balances: for an asset, interest at
+its rate less FTP is its spread; for a liability, FTP less its rate. Each
+product adds `fee_yield` and subtracts `servicing_cost` and, for assets,
+`charge_off` as expected loss. Capital is `risk_weight` x `target_capital`
+x balance, and the product is credited for that capital at its FTP rate.
+Tax is `tax_rate` of pre-tax income. RAROC = net income / capital.
+Treasury's margin is what remains of NII, so that
+
+    sum of spreads + sum of capital credits + treasury = run-rate NII
+
+and a reconciliation check holds every report to it. Fees and operating
+expense not carried by products are shown as unallocated, so the run-rate
+reaches the institution's net income.
+
+## RAROC pricing
+
+`keel/pricing.py` runs one deal through the same monthly step on the base
+curve for its whole life and measures every line per dollar of average
+balance (balance-years): yield, strip FTP, spread, capital credit, the
+upfront fee and origination cost spread over the balance-years, fee yield,
+servicing, expected loss (its charge-offs), tax. The hurdle and break-even
+rates are found by bisection between -5% and 60%, and the tests hold each
+solved rate to its target. A deposit has no capital: its break-even is the
+highest rate that still covers its costs.
+
+## New products
+
+`keel/newproduct.py` adds the product to the settings (copying the product
+it is `like`, then its own `behaviour`), prices new business at the
+proposal's spread to the curve, originates `launch_balance` on the analysis
+date through cash, and grows it at `growth`. It reports the pricing
+calculator's unit economics, the product's own path through the plan (its
+balance and interest read from the projection, FTP at the launch deal's
+rate, costs at its own rates, origination spread over the average life),
+and the whole book's key measures and limits with and without it. The
+institution runs carry the product's interest only, not its servicing cost.
+
+## Budget and variance
+
+`keel/budget.py`. The budget is months 1 to 12 of the base run: each
+product's month-end balance, its average (the mean of the opening and the
+month end), interest and annualized yield. A check holds the products'
+interest, less overnight interest, to the plan's NII. Variance runs over the
+months the actuals cover. For each product, with budget balance B_b and
+interest I_b and actual B_a and I_a over the period:
+
+    volume = (B_a - B_b) * I_b / B_b        rate = (I_a - I_b) - volume
+
+with the sign reversed for liabilities, so each is the effect on NII. A
+product the actuals leave out counts as on budget.
+
+## Bank mode
+
+`institution: bank` changes three things. Income tax (`tax_rate`, default
+21%) is charged monthly on pre-tax income, so cash and equity both move by
+it. NCUA's NEV Supervisory Test and the 12 CFR 741.12 tiers are left out.
+And every page is translated as its last step (`keel/terms.py`): NEV to EVE,
+shares to deposits, net worth to equity. The measures are the same
+computations under either name.
+
 ## What-ifs
 
 `keel/whatif.py` applies assumption changes, by dotted path in the file's
@@ -255,6 +327,14 @@ A test breaks the balance sheet on purpose and confirms the first check
 fails, so the checks can't pass vacuously.
 
 ## Known simplifications
+
+- FTP uses the base curve with no liquidity premium or optionality charge;
+  non-maturity deposits are funded to their decay, not to a management
+  tenor. Profitability is a run-rate, not the plan.
+- Risk weights are per product, not per exposure: no past-due, collateral
+  or concentration adjustments, and the capital ratio is a simplified
+  risk-based measure, not a call-report calculation.
+- The budget is monthly for one year; later years are annual in the plan.
 
 - One curve drives everything: no separate funding, mortgage or deposit
   curves, and no basis risk between indexes beyond fixed spreads.

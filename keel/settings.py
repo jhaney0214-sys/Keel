@@ -29,6 +29,7 @@ from keel.model import InputError, Product
 
 SETTINGS = (  # key, type, note for the workbook
     ("as_of", "date", "The analysis date: positions are as of this day."),
+    ("institution", "text", "credit_union or bank: sets the regulator's tests and the words used."),
     ("horizon_months", "int", "How far the plan and NII run."),
     ("nev_max_months", "int", "How far runoff cash flows run for NEV."),
     ("rate_floor", "float", "No scenario rate goes below this, in percent."),
@@ -39,6 +40,9 @@ SETTINGS = (  # key, type, note for the workbook
     ("cash_minimum", "float", "Cash held; below it the plan borrows overnight."),
     ("overnight_spread", "float", "Overnight borrowing cost over the short rate, percent."),
     ("stress_months", "int", "Length of the liquidity stress, months."),
+    ("tax_rate", "float", "Income tax, percent of pre-tax income (default 0 for a credit union, 21 for a bank)."),
+    ("target_capital", "float", "Capital held per dollar of risk-weighted assets, percent, for product capital."),
+    ("hurdle_rate", "float", "Return on allocated capital that pricing aims for (RAROC hurdle), percent."),
 )
 PRODUCT_FIELDS = [f.name for f in dataclasses.fields(Product) if f.name != "name"]
 SHEETS = ("Settings", "Curve", "Indexes", "Products", "Scenarios", "Contingent", "Limits", "Notes")
@@ -114,6 +118,9 @@ def from_workbook(book, path="settings workbook"):
         value = row.get("value")
         if kinds[key] == "date":
             raw[key] = xlsx.excel_date(value)
+        elif kinds[key] == "text":
+            if xlsx.as_text(value):
+                raw[key] = xlsx.as_text(value)
         else:
             number = _number(value, kinds[key], "%s, Settings, %s" % (path, key))
             if number is not None:

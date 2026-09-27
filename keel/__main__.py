@@ -22,7 +22,32 @@ def main(argv=None):
     conv = sub.add_parser("convert", help="convert a settings file between .json and .xlsx")
     conv.add_argument("source")
     conv.add_argument("target")
-    srv = sub.add_parser("serve", help="a what-if page in the browser, on this computer only")
+    price = sub.add_parser("price", help="RAROC pricing: a deal's life economics and the rate it needs")
+    price.add_argument("folder")
+    price.add_argument("--product", required=True)
+    price.add_argument("--amount", type=float, required=True)
+    price.add_argument("--term", type=int, default=0, help="months (0 for a non-maturity deposit)")
+    price.add_argument("--rate", type=float, default=None, help="percent; leave out to solve for the hurdle rate")
+    price.add_argument("--amortization", default=None, help="level, bullet, balloon or nonmaturity")
+    price.add_argument("--amort-months", type=int, default=0, help="balloon amortization period")
+    price.add_argument("--fee", type=float, default=0.0, help="upfront fee, percent of the amount")
+    for name in ("cpr", "runoff", "charge-off", "servicing-cost", "fee-yield", "origination-cost", "risk-weight"):
+        price.add_argument("--" + name, type=float, default=None, help="percent; overrides the product's")
+    newp = sub.add_parser("newproduct", help="spread analysis of a proposed product, and its effect on the book")
+    newp.add_argument("folder")
+    newp.add_argument("proposal", help="a proposal JSON file")
+    newp.add_argument("--out", default=None, help="default: <folder>/report/newproduct-<file name>.html")
+    qry = sub.add_parser("query", help="ad hoc report: group, filter and total any table")
+    qry.add_argument("folder")
+    qry.add_argument("spec", nargs="?", help="a saved query JSON file (or use the options)")
+    qry.add_argument("--table", default="positions")
+    qry.add_argument("--by", default="", help="comma-separated fields")
+    qry.add_argument("--measure", action="append", default=None, help='e.g. "sum balance", "wavg rate balance"')
+    qry.add_argument("--where", action="append", default=None, help='e.g. "side = asset"')
+    qry.add_argument("--sort", default=None)
+    qry.add_argument("--limit", type=int, default=None)
+    qry.add_argument("--out", default=None, help="write .csv or .xlsx")
+    srv = sub.add_parser("serve", help="what-if, pricing, new-product and explore pages, on this computer only")
     srv.add_argument("folder")
     srv.add_argument("--port", type=int, default=8750)
     args = parser.parse_args(argv)
@@ -37,6 +62,12 @@ def main(argv=None):
             return 2
         print("%s -> %s" % (args.source, args.target))
         return 0
+    if args.command in ("price", "newproduct", "query"):
+        try:
+            return {"price": run_price, "newproduct": run_newproduct, "query": run_query}[args.command](args)
+        except model.InputError as error:
+            print("input error: %s" % error, file=sys.stderr)
+            return 2
     if args.command == "serve":
         from keel import serve
         serve.serve(args.folder, args.port)
@@ -52,16 +83,23 @@ def main(argv=None):
         print("input error: %s" % error, file=sys.stderr)
         return 2
     name = args.name or assumptions.notes.get("about", "Credit union").split(".")[0]
-    result = report.build(positions, assumptions, out, name, imported)
+    result = report.build(positions, assumptions, out, name, imported, args.folder)
     failed = [c for c in result["checks"] if not c.passed]
     print("report -> %s  (every table: results.xlsx)" % os.path.join(out, "report.html"))
-    print("year-one NII %s; NEV ratio after +300bp %.2f%% (%s); reconciliation %d of %d passed" % (
-        "{:,.0f}".format(result["nii_year1"]), 100 * result["test"]["post_shock_ratio"],
-        result["test"]["ratio_rating"], len(result["checks"]) - len(failed), len(result["checks"])))
+    if assumptions.institution == "bank":
+        eve = next(x for x in result["limits"] if x.key == "nev_ratio_min")
+        risk = "EVE ratio after the worst +/-300bp %.2f%%" % eve.value
+    else:
+        risk = "NEV ratio after +300bp %.2f%% (%s)" % (100 * result["test"]["post_shock_ratio"],
+                                                     result["test"]["ratio_rating"])
+    print("year-one NII %s; %s; reconciliation %d of %d passed" % (
+        "{:,.0f}".format(result["nii_year1"]), risk, len(result["checks"]) - len(failed), len(result["checks"])))
     marks = {"within": "ok", "near": "NEAR", "breach": "BREACH"}
     flagged = [x for x in result["limits"] if x.status != "within"]
-    print("limits: %d of %d within%s" % (len(result["limits"]) - len(flagged), len(result["limits"]),
-                                         "".join("; %s %s" % (marks[x.status], x.label) for x in flagged)))
+    from keel import terms
+    print(terms.translate("limits: %d of %d within%s" % (
+        len(result["limits"]) - len(flagged), len(result["limits"]),
+        "".join("; %s %s" % (marks[x.status], x.label) for x in flagged)), assumptions))
     for c in failed:
         print("FAILED: %s (%s)" % (c.name, c.detail), file=sys.stderr)
     return 1 if failed else 0
@@ -109,6 +147,76 @@ def run_whatif(args):
     for note in notes:
         if note.startswith("WARNING"):
             print(note, file=sys.stderr)
+    return 0
+
+
+def run_price(args):
+    from keel import pricing
+    positions, assumptions, _, _ = load(args.folder)
+    pct = lambda v: None if v is None else v / 100.0  # noqa: E731
+    deal = pricing.Deal(product=args.product, amount=args.amount, term_months=args.term, rate=pct(args.rate),
+                        side=pricing.side_of(args.product, positions), amortization=args.amortization,
+                        amort_months=args.amort_months, upfront_fee=args.fee / 100.0, cpr=pct(args.cpr),
+                        runoff=pct(args.runoff), charge_off=pct(args.charge_off),
+                        servicing_cost=pct(args.servicing_cost), fee_yield=pct(args.fee_yield),
+                        origination_cost=pct(args.origination_cost), risk_weight=pct(args.risk_weight))
+    print(pricing.text(pricing.quote(deal, assumptions)))
+    return 0
+
+
+def run_newproduct(args):
+    import json
+    from keel import newproduct, terms
+    positions, assumptions, raw, _ = load(args.folder)
+    with open(args.proposal, encoding="utf-8") as handle:
+        proposal = json.load(handle)
+    result = newproduct.analyse(positions, assumptions, raw, proposal)
+    stem = os.path.splitext(os.path.basename(args.proposal))[0]
+    out = args.out or os.path.join(args.folder, "report", "newproduct-%s.html" % stem)
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    with open(out, "w", encoding="utf-8") as handle:
+        handle.write(terms.translate(newproduct.page(result, report.STYLE), assumptions))
+    e, q = result["quote"]["at"], result["quote"]
+    print("new product -> %s" % out)
+    if e["side"] == "asset":
+        print("one deal at %.2f%%: spread %.2f%% over FTP, RAROC %s (hurdle %.0f%%); hurdle rate %s; break-even %s" % (
+            100 * e["rate"], 100 * e["spread"], "n/a" if e["raroc"] is None else "%.1f%%" % (100 * e["raroc"]),
+            100 * q["hurdle"], "n/a" if q["hurdle_rate"] is None else "%.2f%%" % (100 * q["hurdle_rate"]),
+            "n/a" if q["breakeven_rate"] is None else "%.2f%%" % (100 * q["breakeven_rate"])))
+    else:
+        print("one account at %.2f%%: FTP credit %.2f%%, %.2f%% after costs; highest rate that covers costs %s" % (
+            100 * e["rate"], 100 * e["ftp"], 100 * e["pre_tax"],
+            "n/a" if q["breakeven_rate"] is None else "%.2f%%" % (100 * q["breakeven_rate"])))
+    for y in result["path"]:
+        print("  year %d: average balance %s, net %s" % (y["year"], "{:,.0f}".format(y["average"]),
+                                                         "{:,.0f}".format(y["net"])))
+    return 0
+
+
+def run_query(args):
+    import json
+    from keel import query
+    if args.spec:
+        with open(args.spec, encoding="utf-8") as handle:
+            spec = json.load(handle)
+    else:
+        spec = {"table": args.table, "by": [b.strip() for b in args.by.split(",") if b.strip()],
+                "measures": args.measure or ["count", "sum balance"], "where": args.where or [],
+                "sort": args.sort, "limit": args.limit}
+    positions, assumptions, _, imported = load(args.folder)
+    result = query.run(spec, query.Tables(positions, assumptions, args.folder, imported))
+    if args.out:
+        query.write(result, args.out)
+        print("%d rows -> %s" % (len(result["rows"]), args.out))
+        return 0
+    rows = [result["columns"]] + [[query.fmt(v) for v in row] for row in result["rows"]]
+    if result["total"]:
+        rows.append([query.fmt(v) for v in result["total"]])
+    widths = [max(len(str(row[i])) for row in rows) for i in range(len(rows[0]))]
+    for n, row in enumerate(rows):
+        print("  ".join(str(v).rjust(w) if n and i >= len(spec.get("by") or []) else str(v).ljust(w)
+                        for i, (v, w) in enumerate(zip(row, widths))))
+    print("(%s of %s rows of %s)" % ("{:,}".format(result["matched"]), "{:,}".format(result["of"]), result["table"]))
     return 0
 
 

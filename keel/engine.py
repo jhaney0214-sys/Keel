@@ -180,6 +180,7 @@ class Month:
     fee_income: float = 0.0
     operating_expense: float = 0.0
     credit_losses: float = 0.0
+    income_tax: float = 0.0
     net_income: float = 0.0
     equity: float = 0.0
     assets: float = 0.0
@@ -289,13 +290,16 @@ def going_concern(positions, assumptions, scenario, stress=False, months=None):
         month.interest[CASH] = cash_interest
         month.fee_income = a.fee_income / 12.0
         month.operating_expense = a.operating_expense / 12.0 * (1.0 + a.expense_growth) ** ((t - 1) // 12)
-        month.net_income = (month.interest_income - month.interest_expense + month.fee_income
-                            - month.operating_expense - month.credit_losses)
+        pre_tax = (month.interest_income - month.interest_expense + month.fee_income
+                   - month.operating_expense - month.credit_losses)
+        # Paid (or, on a loss, recovered) monthly, so cash and equity both move by it.
+        month.income_tax = pre_tax * a.tax_rate
+        month.net_income = pre_tax - month.income_tax
 
         cash += (month.asset_principal_in - month.new_assets_out
                  - month.liability_principal_out + month.new_liabilities_in
                  + month.interest_income - month.interest_expense
-                 + month.fee_income - month.operating_expense)
+                 + month.fee_income - month.operating_expense - month.income_tax)
         if cash < a.cash_minimum:
             overnight += a.cash_minimum - cash
             cash = a.cash_minimum

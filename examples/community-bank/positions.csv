@@ -1,0 +1,57 @@
+id,name,product,side,balance,rate,rate_type,index,margin,reset_months,term_months,amortization,floor,cap,amort_months
+cash,Cash and due from banks,cash,asset,42000000.0,0.000,none,,,,,none,,,
+ffs,Fed funds sold,fed_funds_sold,asset,24000000.0,4.050,fixed,,,,1,bullet,,,
+tsy0,US Treasuries,treasuries,asset,36000000.0,4.350,fixed,,,,8,bullet,,,
+tsy1,US Treasuries,treasuries,asset,36000000.0,3.950,fixed,,,,20,bullet,,,
+tsy2,US Treasuries,treasuries,asset,24000000.0,3.600,fixed,,,,44,bullet,,,
+mbs0,Agency MBS,agency_mbs,asset,60000000.0,2.400,fixed,,,,300,level,,,
+mbs1,Agency MBS,agency_mbs,asset,48000000.0,3.100,fixed,,,,330,level,,,
+mbs2,Agency MBS,agency_mbs,asset,36000000.0,5.100,fixed,,,,350,level,,,
+muni,Municipal bonds,municipals,asset,36000000.0,2.600,fixed,,,,96,bullet,,,
+ci0,"C&I lines, prime-based",commercial_industrial,asset,24000000.0,7.226,variable,PRIME,0.99,1,12,bullet,4.00,,
+ci1,"C&I lines, prime-based",commercial_industrial,asset,24000000.0,7.878,variable,PRIME,0.47,1,24,bullet,4.00,,
+ci2,"C&I lines, prime-based",commercial_industrial,asset,24000000.0,7.613,variable,PRIME,0.10,1,36,bullet,4.00,,
+ci3,"C&I lines, prime-based",commercial_industrial,asset,24000000.0,7.815,variable,PRIME,-0.24,1,36,bullet,4.00,,
+ci4,"C&I lines, prime-based",commercial_industrial,asset,24000000.0,7.061,variable,PRIME,0.30,1,12,bullet,4.00,,
+ci5,"C&I lines, prime-based",commercial_industrial,asset,24000000.0,6.944,variable,PRIME,0.97,1,12,bullet,4.00,,
+ci6,"C&I lines, prime-based",commercial_industrial,asset,24000000.0,7.149,variable,PRIME,0.57,1,24,bullet,4.00,,
+ci7,"C&I lines, prime-based",commercial_industrial,asset,24000000.0,7.526,variable,PRIME,-0.10,1,12,bullet,4.00,,
+cre0,Commercial real estate,commercial_re,asset,36000000.0,4.349,fixed,,,,60,balloon,,,300
+cre1,Commercial real estate,commercial_re,asset,36000000.0,6.773,fixed,,,,36,balloon,,,276
+cre2,Commercial real estate,commercial_re,asset,36000000.0,4.468,fixed,,,,24,balloon,,,264
+cre3,Commercial real estate,commercial_re,asset,36000000.0,6.447,fixed,,,,36,balloon,,,276
+cre4,Commercial real estate,commercial_re,asset,36000000.0,5.916,fixed,,,,24,balloon,,,264
+cre5,Commercial real estate,commercial_re,asset,36000000.0,4.621,fixed,,,,12,balloon,,,252
+cre6,Commercial real estate,commercial_re,asset,36000000.0,6.317,fixed,,,,24,balloon,,,264
+cre7,Commercial real estate,commercial_re,asset,36000000.0,4.411,fixed,,,,24,balloon,,,264
+cre8,Commercial real estate,commercial_re,asset,36000000.0,4.926,fixed,,,,36,balloon,,,276
+cre9,Commercial real estate,commercial_re,asset,36000000.0,6.075,fixed,,,,12,balloon,,,252
+con0,"Construction, SOFR-based",construction,asset,18000000.0,6.909,variable,SOFR,2.98,1,12,bullet,,,
+con1,"Construction, SOFR-based",construction,asset,18000000.0,6.888,variable,SOFR,2.82,1,24,bullet,,,
+con2,"Construction, SOFR-based",construction,asset,18000000.0,6.813,variable,SOFR,3.12,1,24,bullet,,,
+con3,"Construction, SOFR-based",construction,asset,18000000.0,7.037,variable,SOFR,2.81,1,12,bullet,,,
+res0,Residential mortgages,residential_mortgage,asset,24000000.0,3.296,fixed,,,,350,level,,,
+res1,Residential mortgages,residential_mortgage,asset,24000000.0,4.618,fixed,,,,330,level,,,
+res2,Residential mortgages,residential_mortgage,asset,24000000.0,5.051,fixed,,,,240,level,,,
+res3,Residential mortgages,residential_mortgage,asset,24000000.0,5.489,fixed,,,,330,level,,,
+res4,Residential mortgages,residential_mortgage,asset,24000000.0,3.670,fixed,,,,240,level,,,
+res5,Residential mortgages,residential_mortgage,asset,24000000.0,5.722,fixed,,,,240,level,,,
+cons0,Consumer loans,consumer,asset,12000000.0,10.460,fixed,,,,52,level,,,
+cons1,Consumer loans,consumer,asset,12000000.0,7.883,fixed,,,,40,level,,,
+cons2,Consumer loans,consumer,asset,12000000.0,9.466,fixed,,,,52,level,,,
+prem,Premises and equipment,premises,asset,14400000.0,0.000,none,,,,,none,,,
+alll,Allowance for credit losses,other_assets,asset,-10050000.0,0.000,none,,,,,none,,,
+oth,Other assets,other_assets,asset,24000000.0,0.000,none,,,,,none,,,
+dda,Noninterest-bearing checking,noninterest_checking,liability,258357000.0,0.000,administered,,,,,nonmaturity,,,
+now,Interest checking,interest_checking,liability,164409000.0,0.350,administered,,,,,nonmaturity,,,
+sav,Savings,savings,liability,117435000.0,0.250,administered,,,,,nonmaturity,,,
+mmda,Money market deposits,money_market,liability,187896000.0,2.850,administered,,,,,nonmaturity,,,
+td0,Time deposits,time_deposits,liability,27401500.0,4.017,fixed,,,,3,bullet,,,
+td1,Time deposits,time_deposits,liability,27401500.0,4.056,fixed,,,,6,bullet,,,
+td2,Time deposits,time_deposits,liability,27401500.0,4.020,fixed,,,,9,bullet,,,
+td3,Time deposits,time_deposits,liability,27401500.0,3.870,fixed,,,,12,bullet,,,
+td4,Time deposits,time_deposits,liability,27401500.0,3.989,fixed,,,,18,bullet,,,
+td5,Time deposits,time_deposits,liability,27401500.0,3.794,fixed,,,,24,bullet,,,
+bcd,Brokered CDs,brokered_cds,liability,46974000.0,4.450,fixed,,,,9,bullet,,,
+fhlb,FHLB advances,borrowings,liability,46974000.0,4.300,fixed,,,,30,bullet,,,
+othl,Other liabilities,other_liabilities,liability,76332750.0,0.000,none,,,,,none,,,
