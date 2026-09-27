@@ -294,7 +294,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 112 tests
+python -m unittest discover -s tests      # 119 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,
