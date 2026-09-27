@@ -46,10 +46,12 @@ SETTINGS = (  # key, type, note for the workbook
     ("hurdle_rate", "float", "Return on allocated capital that pricing aims for (RAROC hurdle), percent."),
 )
 PRODUCT_FIELDS = [f.name for f in dataclasses.fields(Product) if f.name != "name"]
-SHEETS = ("Settings", "Curve", "Indexes", "Products", "Scenarios", "Contingent", "Limits", "Forecast", "Drivers",
-          "Noninterest", "Notes")
+SHEETS = ("Settings", "Curve", "Indexes", "Products", "Scenarios", "Contingent", "Limits", "Stresses", "Forecast",
+          "Drivers", "Noninterest", "Notes")
 #: Sheets read as plain rows into a list of dicts: (sheet, raw key, columns).
-ROW_SHEETS = (("Forecast", "rate_forecast", ("month", "tenor_months", "rate")),
+ROW_SHEETS = (("Stresses", "liquidity_stresses", ("name", "runoff_multiplier", "haircut_add", "contingent_available",
+                                                "months", "uninsured_runoff")),
+              ("Forecast", "rate_forecast", ("month", "tenor_months", "rate")),
               ("Drivers", "drivers", ("product", "month", "volume", "balance", "rate")),
               ("Noninterest", "noninterest", ("line", "kind", "annual", "growth", "start_month")))
 
@@ -188,7 +190,8 @@ def from_workbook(book, path="settings workbook"):
             spec["shape"] = _shape(row["shape"], where)
         raw["extra_scenarios"].append(spec)
     raw["liquidity"] = {"contingent": [
-        {"name": xlsx.as_text(r.get("name")), "capacity": _number(r.get("capacity"), "float", "%s, Contingent" % path)}
+        {"name": xlsx.as_text(r.get("name")), "capacity": _number(r.get("capacity"), "float", "%s, Contingent" % path),
+         "secured": bool(_number(r.get("secured"), "bool", "%s, Contingent, secured" % path))}
         for r in xlsx.table(book.get("Contingent", [])) if xlsx.as_text(r.get("name"))]}
     if "stress_months" in raw:
         raw["liquidity"]["stress_months"] = raw.pop("stress_months")
@@ -215,7 +218,7 @@ def from_workbook(book, path="settings workbook"):
                     continue
                 if c == "month" and isinstance(v, float) and v > 20000:
                     v = xlsx.excel_date(v)[:7]       # Excel turned a typed YYYY-MM into a date
-                row[c] = xlsx.as_text(v) if c in ("product", "line", "kind", "month") else v
+                row[c] = xlsx.as_text(v) if c in ("product", "line", "kind", "month", "name") else v
             if row:
                 rows.append(row)
         if rows:
@@ -247,7 +250,8 @@ def to_workbook(raw):
         [s["name"], s.get("shock_bp"), s.get("ramp_months"),
          ", ".join("%s:%g" % (t, bp) for t, bp in sorted(s["shape"].items(), key=lambda x: float(x[0])))
          if s.get("shape") else None] for s in raw.get("extra_scenarios", [])]
-    contingent = [["name", "capacity"]] + [[c["name"], c["capacity"]] for c in liquidity.get("contingent", [])]
+    contingent = [["name", "capacity", "secured"]] + [[c["name"], c["capacity"], bool(c.get("secured"))]
+                                                       for c in liquidity.get("contingent", [])]
     from keel.model import LIMITS
     set_limits = raw.get("limits", {})
     limits = [["key", "value", "note"]]

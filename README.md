@@ -16,7 +16,10 @@ of them from it:
   base case and under every scenario.
 - **Liquidity:** a first-year survival horizon under a share-runoff stress,
   the plan's own funding need, the contractual gap, ratios, and which tier of
-  12 CFR 741.12 applies.
+  12 CFR 741.12 applies; graded stress scenarios (severe, systemic, a run on
+  uninsured balances); FHLB and discount-window capacity limited by the
+  lendable value of pledgeable loans; and deposit concentration (uninsured
+  share, largest members) from a member-level file.
 - **Portfolios:** investments by type with market value, unrealized gain or
   loss, WAL and effective duration; the largest holdings; loans by product;
   the certificate maturity ladder.
@@ -211,6 +214,21 @@ Noninterest sheet itemizes fee income and operating expense with growth and
 a start month. Between and after drivers, products grow at their planned
 rate from where the last driver left them.
 
+## Liquidity scenarios, collateral and concentration
+
+- **Scenarios:** the Stresses sheet (or `liquidity.stresses` in JSON) lists
+  scenarios by name with `runoff_multiplier`, `haircut_add` (points),
+  `contingent_available` (percent), `months` and `uninsured_runoff`
+  (percent). Without it, Keel runs four: as configured, severe, systemic and
+  an uninsured run. Each is checked against the survival limit.
+- **Collateral:** mark a contingent source `secured` (a column in the
+  Contingent sheet) and give pledgeable loan products a `collateral_value`
+  (percent lent against). The line then counts at the smaller of its unused
+  amount and the collateral left after existing borrowings.
+- **Concentration:** put `depositors.csv` (member_id, balance) in the folder
+  for the uninsured share (limit `uninsured_shares_max`, default 15%) and the
+  largest members' share. Without it, certificates over $250,000 give a floor.
+
 ## The deposit study
 
 Put `deposit_history.csv` (month, product, balance, rate, market_rate, one
@@ -294,7 +312,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 119 tests
+python -m unittest discover -s tests      # 127 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,

@@ -435,7 +435,7 @@ class Generator(object):
                                 {"name": "short end +200", "shape": {"1": 200, "12": 200, "36": 0}}],
             "limits": p.get("limits", {}),
             "liquidity": {"stress_months": 3, "contingent": [
-                {"name": "FHLB unused borrowing capacity", "capacity": round(assets * 0.12, -3)},
+                {"name": "FHLB unused borrowing capacity", "capacity": round(assets * 0.12, -3), "secured": True},
                 {"name": "Central Liquidity Facility (through a corporate credit union)",
                  "capacity": round(assets * 0.04, -3)}]},
         }

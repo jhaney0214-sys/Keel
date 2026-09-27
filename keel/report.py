@@ -138,7 +138,7 @@ def limit_text(x):
 
 def limit_value(x):
     if x.value is None:
-        return "12+ months"
+        return "12+ months" if x.unit == "months" else "not measured"
     return "%.1f%s" % (x.value, " months" if x.unit == "months" else "%")
 
 
@@ -343,6 +343,9 @@ def liquidity(r):
                                                                               L["funding_peak_month"])))
     parts.append("<h3>Contractual gap, today's positions only ($000)</h3>")
     parts.append(table(["Month", "Net inflow", "Cumulative"], [[str(m), k(n), k(c)] for m, n, c in L["contractual"]]))
+    parts.append(liquidity_scenarios(r))
+    parts.append(liquidity_collateral(r))
+    parts.append(liquidity_concentration(r))
     parts.append("</section>")
     return "".join(parts)
 
@@ -742,6 +745,78 @@ def deposits_section(r):
                  "first month's accounts, fitted to (1 - d)^(t/12); aggregate balances cannot give it, because new "
                  "money hides runoff.</p></section>")
     return "".join(parts)
+
+
+def liquidity_scenarios(r):
+    L = r["liquidity"]
+    rows = L.get("scenarios") or []
+    if not rows:
+        return ""
+    limit = next(x for x in r["limits"] if x.key == "survival_months_min")
+    out = ["<h3 id='liquidity-scenarios'>Stress scenarios</h3><p class='muted'>Each scenario scales every share "
+           "product's stress runoff, adds to the haircut on liquid investments, cuts what the contingent sources "
+           "will lend, and can add a run on uninsured balances, then runs the same stressed projection. Scenarios "
+           "come from the Stresses sheet of the settings, or Keel's four defaults.</p>"]
+    body = []
+    for s in rows:
+        months = None if s["survival"] is None else float(s["survival"] - 1)
+        status = results_module.evaluate("survival_months_min", "min", limit.limit, months, r["assumptions"].warning_band)
+        body.append([esc(s["name"]), "x%g" % s["runoff_multiplier"], "+%g pts" % round(100 * s["haircut_add"], 1),
+                     pct(s["contingent_available"], 0), str(s["months"]),
+                     pct(s["uninsured_runoff"], 0) if s["uninsured_runoff"] else "",
+                     "the whole year" if s["survival"] is None else "runs out in month %d" % s["survival"],
+                     k(s["lowest"]), str(s["lowest_month"]), chip(status)])
+    out.append(table(["Scenario", "Share runoff", "Extra haircut", "Contingent available", "Months",
+                      "Uninsured leaving", "Liquidity", "Low point ($000)", "Month", "Against the limit"], body))
+    return "".join(out)
+
+
+def liquidity_collateral(r):
+    c = r["liquidity"].get("collateral")
+    if not c or not c["lines"]:
+        return ""
+    out = ["<h3 id='collateral'>Borrowing capacity and collateral ($000)</h3>"]
+    rows = [[label(p), k(b), pct(share, 0), k(v)] for p, b, share, v in c["lines"]]
+    rows.append(["Total", "", "", k(c["lendable"])])
+    out.append(table(["Pledgeable loans", "Balance", "Lendable share", "Lendable value"], rows, total_last=True))
+    if c["secured"]:
+        out.append(table(["Secured line", "Unused line", "Collateral left", "Counted in the stress"],
+                         [[esc(x["name"]), k(x["line"]), k(x["collateral_headroom"]), k(x["usable"])]
+                          for x in c["secured"]]))
+    out.append("<p class='muted'>A secured line counts at the smaller of its unused amount and the lendable value "
+               "of pledgeable loans left after what is already borrowed ($%sK). Lendable shares are each product's "
+               "<code>collateral_value</code>. Securities are not counted as collateral here: they already count "
+               "as liquid investments after their haircut.</p>" % k(c["borrowed"]))
+    return "".join(out)
+
+
+def liquidity_concentration(r):
+    c = r["liquidity"].get("concentration")
+    if not c:
+        return ("<h3 id='concentration'>Deposit concentration</h3><p class='muted'>Add <code>depositors.csv</code> "
+                "(member_id, balance: one row per member, all share accounts summed) to measure uninsured balances "
+                "and large-depositor concentration.</p>")
+    limit = next(x for x in r["limits"] if x.key == "uninsured_shares_max")
+    out = ["<h3 id='concentration'>Deposit concentration</h3>"]
+    if c["source"] == "depositors":
+        out.append(table(["Measure", "Value"], [
+            ["Members", "{:,}".format(c["members"])],
+            ["Members over $250,000", "{:,}".format(c["over_limit"])],
+            ["Balances over $250,000 (uninsured, estimated)", "$%sK" % k(c["uninsured"])],
+            ["Uninsured share of shares", pct(c["uninsured_share"], 1) + " " + chip(limit.status)],
+            ["Largest 10 members' share", pct(c["top10_share"], 1)],
+            ["Largest 20 members' share", pct(c["top20_share"], 1)],
+            ["Largest member", "$%sK" % k(c["largest"])]], numeric_from=1))
+        out.append("<p class='muted'>From <code>depositors.csv</code>. Insurance covers $250,000 per member per "
+                   "ownership category, and the file does not split categories, so this overstates uninsured "
+                   "balances for members with joint, retirement or trust accounts: an upper bound. The Uninsured "
+                   "run scenario above uses it.</p>")
+    else:
+        out.append("<p>Certificates over $250,000 hold <b>$%sK</b> above the insured limit, %s of shares %s. "
+                   "That is a floor: share accounts are only reported in balance tiers here. Add "
+                   "<code>depositors.csv</code> for the full measure.</p>" % (
+                       k(c["uninsured"]), pct(c["uninsured_share"], 1), chip(limit.status)))
+    return "".join(out)
 
 
 def reconciliation(r):

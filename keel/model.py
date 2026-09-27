@@ -132,6 +132,7 @@ class Product:
     servicing_cost: float = 0.0   # annual operating cost, share of balance
     fee_yield: float = 0.0        # annual fee income, share of balance
     origination_cost: float = 0.0 # one-time cost of new business, share of the amount
+    collateral_value: float = 0.0 # share of the balance a secured lender (FHLB) lends against
 
 
 def _decimal(value):
@@ -144,7 +145,7 @@ def _decimal(value):
 PERCENT_FIELDS = ("cpr", "cpr_per_100bp", "cpr_floor", "cpr_cap", "runoff", "runoff_per_100bp",
                   "beta", "rate_floor", "spread", "discount_spread", "growth", "charge_off",
                   "haircut", "stress_runoff", "call_threshold", "risk_weight", "servicing_cost",
-                  "fee_yield", "origination_cost")
+                  "fee_yield", "origination_cost", "collateral_value")
 
 
 #: Policy limits: (key, kind, default, label). "max" limits cap a measure,
@@ -162,6 +163,7 @@ LIMITS = (
     ("borrowings_to_assets_max", "max", 25.0, "Borrowings to assets"),
     ("survival_months_min", "min", 6.0, "Months of liquidity under the stress"),
     ("capital_to_rwa_min", "min", 10.0, "Net worth to risk-weighted assets"),
+    ("uninsured_shares_max", "max", 15.0, "Uninsured shares, estimated"),
 )
 INSTITUTIONS = ("credit_union", "bank")
 WARNING_BAND = 10.0   # percent of a limit counted as "near" it
@@ -197,6 +199,8 @@ class Assumptions:
     path: object = None         # the RatePath the plan follows, or None for flat
     drivers: dict = dataclasses.field(default_factory=dict)   # product -> {month: {volume, balance, rate}}
     noninterest: list = dataclasses.field(default_factory=list)   # [NonInterest]
+    secured: frozenset = frozenset()   # contingent sources capped by pledgeable collateral
+    stresses: list = dataclasses.field(default_factory=list)      # [liquidity.Stress]
 
 
 @dataclasses.dataclass
@@ -326,9 +330,20 @@ def parse_assumptions(raw):
         overnight_spread=_decimal(raw.get("overnight_spread", 0)),
         stress_months=int(liquidity.get("stress_months", 3)),
         contingent=[(c["name"], float(c["capacity"])) for c in liquidity.get("contingent", [])],
+        secured=frozenset(c["name"] for c in liquidity.get("contingent", []) if _truthy(c.get("secured"))),
+        stresses=_stresses(raw.get("liquidity_stresses") or liquidity.get("stresses")),
         scenarios=scenarios, notes=raw.get("notes", {}),
         limits=_limits(raw.get("limits", {})),
         warning_band=float(raw.get("limits", {}).get("warning_band", WARNING_BAND)))
+
+
+def _truthy(value):
+    return str(value).strip().lower() in ("true", "yes", "y", "1", "x") if value not in (None, "") else False
+
+
+def _stresses(raw_list):
+    from keel import liquidity
+    return liquidity.scenarios(raw_list)
 
 
 def _limits(raw):

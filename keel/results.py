@@ -126,7 +126,9 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
                          "peak_overnight": max(m.overnight for m in runs[s.name])} for s in a.scenarios]
 
     # ---- liquidity
-    stressed = engine.going_concern(positions, a, base_scenario, stress=True)
+    from keel import liquidity as liquidity_module
+    stressed = engine.going_concern(positions, liquidity_module.with_collateral(positions, a), base_scenario,
+                                    stress=True)
     survival = measures.survival(stressed)
     low = min(stressed[:measures.SURVIVAL_MONTHS], key=lambda m: m.available_liquidity)
     peak, peak_month = measures.funding_gap(base)
@@ -176,6 +178,7 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
         "loans_to_shares_max": 100 * liq_ratios["loans_to_shares"],
         "borrowings_to_assets_max": 100 * liq_ratios["borrowings_to_assets"],
         "survival_months_min": survival_value(survival),
+        "uninsured_shares_max": None,        # set below, once the concentration is read
         "capital_to_rwa_min": 100 * open_equity / total_rwa if total_rwa else None,
     }
     limits = evaluate_limits(measured, a)
@@ -199,7 +202,8 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
                       "survival": survival, "lowest": low.available_liquidity, "lowest_month": low.month,
                       "funding_peak": peak, "funding_peak_month": peak_month,
                       "contractual": measures.contractual_gap(positions, a, base_scenario, 12),
-                      "contingent": list(a.contingent), "stress_months": a.stress_months},
+                      "contingent": list(liquidity_module.effective_contingent(positions, a)[0]),
+                      "stress_months": a.stress_months},
         "securities": securities, "security_groups": measures.by_product(securities),
         "imported": imported, "positions": len(positions),
         "checks": checks, "limits": limits,
@@ -209,6 +213,19 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
         "base_run": base, "book": positions, "budget": plan_budget, "variance": variance,
     }
     from keel import deposits, history, sensitivity
+    conc = liquidity_module.concentration(positions, folder, imported)
+    lines, lendable = liquidity_module.collateral(positions, a)
+    result["liquidity"]["collateral"] = {"lines": lines, "lendable": lendable,
+                                         "borrowed": liquidity_module.borrowed(positions),
+                                         "secured": liquidity_module.effective_contingent(positions, a)[1]}
+    result["liquidity"]["concentration"] = conc
+    result["liquidity"]["scenarios"] = liquidity_module.run(positions, a, a.stresses,
+                                                            conc["uninsured"] if conc else None)
+    if conc:
+        for limit in result["limits"]:
+            if limit.key == "uninsured_shares_max":
+                limit.value = 100.0 * conc["uninsured_share"]
+                limit.status = evaluate(limit.key, limit.kind, limit.limit, limit.value, a.warning_band)
     result["deposits"] = deposits.study(folder, a) if folder else None
     recommended = deposits.recommended(result["deposits"]) if result["deposits"] else None
     result["deposit_recommended"] = recommended
@@ -329,6 +346,16 @@ def findings(r):
     if L["funding_peak"] > 0:
         text += " The plan itself borrows up to %s overnight (month %d), because loans outgrow shares." % (
             _money(L["funding_peak"]), L["funding_peak_month"])
+    worst = [s for s in (L.get("scenarios") or []) if s["survival"] is not None]
+    if worst:
+        first = min(worst, key=lambda s: s["survival"])
+        text += " Under the %s scenario it runs out in month %d." % (first["name"].lower(), first["survival"])
+    elif L.get("scenarios"):
+        text += " It lasts the year in all %d stress scenarios." % len(L["scenarios"])
+    conc = L.get("concentration")
+    if conc:
+        text += " Uninsured balances are an estimated %.1f%% of shares%s." % (
+            100 * conc["uninsured_share"], "" if conc["source"] == "depositors" else " (a floor, from certificates)")
     out.append(("Liquidity", text))
     p = r["plan"]
     case = {"flat": "With today's curve held", "forward": "On the curve's implied forward rates",

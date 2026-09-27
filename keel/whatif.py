@@ -143,7 +143,8 @@ def key_measures(positions, a):
     sup0 = measures.nev(positions, a, Scenario("base", 0, floor=a.rate_floor), supervisory=True)
     sup3 = measures.nev(positions, a, Scenario("+300", 300, floor=a.rate_floor), supervisory=True)
     test = measures.ncua_test(sup0, sup3)
-    stressed = engine.going_concern(positions, a, base, stress=True)
+    from keel import liquidity
+    stressed = engine.going_concern(positions, liquidity.with_collateral(positions, a), base, stress=True)
     peak, _ = measures.funding_gap(run)
     y1 = measures.income_statement(measures.year(run, 1))
     limits = _limits(positions, a, run, {"+300": up_run, "-300": down_run}, {"+300": mgmt3}, mgmt0, stressed)
@@ -196,6 +197,7 @@ def _limits(positions, a, run, runs, nevs, nev_base, stressed):
         "borrowings_to_assets_max": 100 * ratios["borrowings_to_assets"],
         "survival_months_min": results.survival_value(measures.survival(stressed)),
         "capital_to_rwa_min": _capital_ratio(positions, a),
+        "uninsured_shares_max": None,    # needs the depositor file; the full report measures it
     }
     return results.evaluate_limits(measured, a)
 
@@ -211,6 +213,8 @@ def _chip(status):
 
 def _fmt(value, kind):
     if kind == "limit":
+        if value.value is None and value.unit != "months":
+            return "not measured here " + _chip(value.status)
         shown = "12+ months" if value.value is None else "%.1f%s" % (
             value.value, " months" if value.unit == "months" else "%")
         return "%s %s" % (shown, _chip(value.status))

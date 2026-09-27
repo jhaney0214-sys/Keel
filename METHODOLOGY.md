@@ -326,6 +326,26 @@ and +/-300bp, and its NII decline, NEV decline and NEV ratio are read
 against the same limits as the report. Decay changes NEV but not the plan's
 NII, because the plan holds share balances to their growth path.
 
+## Liquidity scenarios, collateral and concentration
+
+`keel/liquidity.py`. A scenario multiplies every share product's
+`stress_runoff`, adds points to each liquid product's `haircut`, multiplies
+each contingent source's capacity by `contingent_available`, sets the stress
+length, and adds `uninsured_runoff` times the estimated uninsured balance,
+spread over share balances in proportion, as extra runoff. Each runs through
+the same stressed going-concern projection as the base stress, and its
+survival month is read against `survival_months_min`.
+
+Secured sources are capped at the lendable value of pledgeable loans
+(balance times `collateral_value`) less existing borrowings; secured sources
+draw on that headroom in the order listed, so two lines never pledge the
+same loans. Securities are not collateral here, since they already count as
+liquid after their haircut. The cap applies to the base stress too.
+
+Uninsured balances are the sum over members of the balance above $250,000.
+Ownership categories are not in the file, so this is an upper bound; the
+certificate-only fallback is a lower bound, and the report names which it is.
+
 ## The deposit study
 
 `keel/deposits.py`. For each share product with at least 13 months of

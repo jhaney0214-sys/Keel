@@ -34,13 +34,13 @@ COSTS = {
     "invest_cds": {"risk_weight": 20.0, "servicing_cost": 0.02},
     "new_auto": {"risk_weight": 75.0, "servicing_cost": 0.60, "fee_yield": 0.10, "origination_cost": 0.75},
     "used_auto": {"risk_weight": 75.0, "servicing_cost": 0.70, "fee_yield": 0.15, "origination_cost": 0.75},
-    "first_mortgage": {"risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05, "origination_cost": 1.00},
-    "first_mortgage_15": {"risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05, "origination_cost": 1.00},
-    "arm_mortgage": {"risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05, "origination_cost": 1.00},
-    "heloc": {"risk_weight": 100.0, "servicing_cost": 0.50, "fee_yield": 0.10, "origination_cost": 0.50},
+    "first_mortgage": {"collateral_value": 75.0, "risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05, "origination_cost": 1.00},
+    "first_mortgage_15": {"collateral_value": 75.0, "risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05, "origination_cost": 1.00},
+    "arm_mortgage": {"collateral_value": 75.0, "risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05, "origination_cost": 1.00},
+    "heloc": {"collateral_value": 50.0, "risk_weight": 100.0, "servicing_cost": 0.50, "fee_yield": 0.10, "origination_cost": 0.50},
     "credit_card": {"risk_weight": 75.0, "servicing_cost": 2.50, "fee_yield": 2.00},
     "unsecured": {"risk_weight": 75.0, "servicing_cost": 1.50, "fee_yield": 0.25, "origination_cost": 1.00},
-    "commercial_re": {"risk_weight": 100.0, "servicing_cost": 0.40, "fee_yield": 0.10, "origination_cost": 0.75},
+    "commercial_re": {"collateral_value": 60.0, "risk_weight": 100.0, "servicing_cost": 0.40, "fee_yield": 0.10, "origination_cost": 0.75},
     "regular_shares": {"servicing_cost": 0.60, "fee_yield": 0.35},
     "share_drafts": {"servicing_cost": 1.60, "fee_yield": 2.20},
     "money_market": {"servicing_cost": 0.30, "fee_yield": 0.05},
@@ -220,12 +220,12 @@ BANK_PRODUCTS = {
     "commercial_industrial": {"new_term": 36, "growth": 6.0, "charge_off": 0.35, "discount_spread": 2.75,
                               "risk_weight": 100.0, "servicing_cost": 0.60, "fee_yield": 0.30,
                               "origination_cost": 0.50},
-    "commercial_re": {"cpr": 6.0, "cpr_per_100bp": 2.0, "new_term": 60, "new_amortization": "balloon",
+    "commercial_re": {"collateral_value": 60.0, "cpr": 6.0, "cpr_per_100bp": 2.0, "new_term": 60, "new_amortization": "balloon",
                       "spread": 2.50, "discount_spread": 2.50, "growth": 5.0, "charge_off": 0.20, "risk_weight": 100.0,
                       "servicing_cost": 0.35, "fee_yield": 0.15, "origination_cost": 0.60},
     "construction": {"new_term": 18, "growth": 3.0, "charge_off": 0.50, "discount_spread": 3.25,
                      "risk_weight": 150.0, "servicing_cost": 0.80, "fee_yield": 0.50, "origination_cost": 0.75},
-    "residential_mortgage": {"cpr": 7.0, "cpr_per_100bp": 6.0, "cpr_floor": 3.0, "cpr_cap": 45.0, "new_term": 360,
+    "residential_mortgage": {"collateral_value": 75.0, "cpr": 7.0, "cpr_per_100bp": 6.0, "cpr_floor": 3.0, "cpr_cap": 45.0, "new_term": 360,
                              "new_amortization": "level", "spread": 1.80, "discount_spread": 1.80, "growth": 2.0,
                              "charge_off": 0.05, "risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05,
                              "origination_cost": 1.00},
@@ -336,10 +336,12 @@ def write_bank():
                             {"name": "steepener", "shape": {"1": 0, "24": 50, "120": 200}}],
         "limits": {"nii_decline_300": 15.0, "nii_decline_200": 10.0, "nev_decline_300": 30.0, "nev_ratio_min": 7.0,
                    "net_worth_min": 8.0, "liquid_to_shares_min": 12.0, "loans_to_shares_max": 95.0,
-                   "borrowings_to_assets_max": 15.0, "survival_months_min": 6.0, "capital_to_rwa_min": 10.5},
+                   "borrowings_to_assets_max": 15.0, "survival_months_min": 6.0, "capital_to_rwa_min": 10.5,
+                   "uninsured_shares_max": 50.0},
         "liquidity": {"stress_months": 3, "contingent": [
-            {"name": "FHLB unused borrowing capacity", "capacity": round(total_assets * 0.10, -3)},
-            {"name": "Federal Reserve discount window (pledged collateral)", "capacity": round(total_assets * 0.05, -3)}]},
+            {"name": "FHLB unused borrowing capacity", "capacity": round(total_assets * 0.10, -3), "secured": True},
+            {"name": "Federal Reserve discount window (pledged collateral)", "capacity": round(total_assets * 0.05, -3),
+             "secured": True}]},
     }
     for stale in ("assumptions.json", "assumptions.xlsx"):
         if os.path.isfile(os.path.join(folder, stale)):
@@ -353,7 +355,10 @@ def run():
     write_proposals()
     print("%-14s %d rows of actuals" % ("mid-cu", write_actuals()))
     print("%-14s %d months of product history, %d account-months" % (("mid-cu",) + write_deposit_history()))
+    print("%-14s %d members" % ("mid-cu", write_depositors("mid-cu", 46000, 81)))
+    print("%-14s %d members" % ("large-cu", write_depositors("large-cu", 150000, 83, sigma=1.6)))
     print("%-14s %d positions" % ("community-bank", write_bank()))
+    print("%-14s %d depositors" % ("community-bank", write_depositors("community-bank", 18000, 85, sigma=2.3)))
     print("%-14s %d positions, and its June run in history/" % ("backtest-cu", write_backtest()))
 
 
@@ -489,6 +494,27 @@ def _market():
                 out.append(("%04d-%02d" % ((i - 1) // 12, (i - 1) % 12 + 1), ra + (rb - ra) * (i - a) / float(b - a)))
                 break
     return out
+
+
+def write_depositors(name, members, seed, sigma=1.45):
+    """One row per member: a lognormal spread of balances scaled to the
+    credit union's total shares, so the report can measure uninsured
+    balances and large-depositor concentration."""
+    import csv
+    from keel.__main__ import load
+    folder = os.path.join(EXAMPLES, name)
+    positions, _, _, _ = load(folder)
+    total = sum(p.balance for p in positions if p.side == "liability"
+                and p.product not in ("borrowings", "other_liabilities"))
+    rng = random.Random(seed)
+    raw = [rng.lognormvariate(0.0, sigma) for _ in range(members)]
+    scale = total / sum(raw)
+    with open(os.path.join(folder, "depositors.csv"), "w", encoding="utf-8", newline="") as handle:
+        w = csv.writer(handle)
+        w.writerow(["member_id", "balance"])
+        for i, x in enumerate(raw):
+            w.writerow(["M%06d" % i, round(x * scale, 2)])
+    return members
 
 
 def write_deposit_history(name="mid-cu", accounts_per_product=1200, account_months=36):

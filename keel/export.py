@@ -99,6 +99,21 @@ def sheets(r):
     for i, q in enumerate(r.get("queries") or [], 1):
         title = re.sub(r"[\[\]:*?/\\]", "-", "Q%d %s" % (i, q["name"]))[:31]   # characters Excel refuses
         out[title] = [q["columns"]] + q["rows"] + ([q["total"]] if q["total"] else [])
+    L = r["liquidity"]
+    if L.get("scenarios"):
+        out["Stress scenarios"] = [["scenario", "runoff_multiplier", "haircut_add_pts", "contingent_available_pct",
+                                    "months", "uninsured_runoff_pct", "survival_month", "lowest", "lowest_month"]] + [
+            [s["name"], s["runoff_multiplier"], 100 * s["haircut_add"], 100 * s["contingent_available"], s["months"],
+             100 * s["uninsured_runoff"], s["survival"], s["lowest"], s["lowest_month"]] for s in L["scenarios"]]
+    col = L.get("collateral")
+    if col and col["lines"]:
+        out["Collateral"] = ([["product", "balance", "lendable_share_pct", "lendable_value"]]
+                             + [[p, b, 100 * sh, v] for p, b, sh, v in col["lines"]]
+                             + [[], ["secured line", "unused line", "collateral left", "counted"]]
+                             + [[x["name"], x["line"], x["collateral_headroom"], x["usable"]] for x in col["secured"]])
+    conc = L.get("concentration")
+    if conc:
+        out["Concentration"] = [["measure", "value"]] + [[k2, v] for k2, v in conc.items()]
     d = r.get("deposits")
     if d and d["products"]:
         out["Deposit study"] = [["product", "months", "beta_assumed_pct", "beta_estimated_pct", "lag", "r2",

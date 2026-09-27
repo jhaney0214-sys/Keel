@@ -106,30 +106,30 @@ PRODUCTS = {
     "other_secured": {"cpr": 15.0, "new_term": 48, "new_amortization": "level", "spread": 3.00,
                       "discount_spread": 3.00, "growth": 2.0, "charge_off": 0.80, "risk_weight": 75.0,
                       "servicing_cost": 0.80, "origination_cost": 0.75},
-    "first_mortgage": {"cpr": 6.0, "cpr_per_100bp": 6.0, "cpr_floor": 3.0, "cpr_cap": 45.0, "new_term": 360,
+    "first_mortgage": {"collateral_value": 75.0, "cpr": 6.0, "cpr_per_100bp": 6.0, "cpr_floor": 3.0, "cpr_cap": 45.0, "new_term": 360,
                        "new_amortization": "level", "spread": 1.90, "discount_spread": 1.90, "growth": 3.0,
                        "charge_off": 0.04, "risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05,
                        "origination_cost": 1.00},
-    "first_mortgage_15": {"cpr": 8.0, "cpr_per_100bp": 6.0, "cpr_floor": 4.0, "cpr_cap": 45.0, "new_term": 180,
+    "first_mortgage_15": {"collateral_value": 75.0, "cpr": 8.0, "cpr_per_100bp": 6.0, "cpr_floor": 4.0, "cpr_cap": 45.0, "new_term": 180,
                           "new_amortization": "level", "spread": 1.60, "discount_spread": 1.60, "growth": 1.0,
                           "charge_off": 0.03, "risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05,
                           "origination_cost": 1.00},
-    "hybrid_mortgage": {"cpr": 9.0, "cpr_per_100bp": 5.0, "cpr_floor": 4.0, "cpr_cap": 45.0, "new_term": 360,
+    "hybrid_mortgage": {"collateral_value": 75.0, "cpr": 9.0, "cpr_per_100bp": 5.0, "cpr_floor": 4.0, "cpr_cap": 45.0, "new_term": 360,
                         "new_amortization": "balloon", "new_amort_term": 360, "spread": 1.70, "discount_spread": 1.70,
                         "growth": 2.0, "charge_off": 0.05, "risk_weight": 50.0, "servicing_cost": 0.25,
                         "origination_cost": 1.00},
-    "arm_mortgage": {"cpr": 10.0, "cpr_per_100bp": 4.0, "new_term": 360, "new_amortization": "level",
+    "arm_mortgage": {"collateral_value": 75.0, "cpr": 10.0, "cpr_per_100bp": 4.0, "new_term": 360, "new_amortization": "level",
                      "discount_spread": 2.20, "growth": 2.0, "charge_off": 0.05, "risk_weight": 50.0,
                      "servicing_cost": 0.25, "origination_cost": 1.00},
-    "home_equity_loan": {"cpr": 12.0, "new_term": 120, "new_amortization": "level", "spread": 2.50,
+    "home_equity_loan": {"collateral_value": 50.0, "cpr": 12.0, "new_term": 120, "new_amortization": "level", "spread": 2.50,
                          "discount_spread": 2.50, "growth": 2.0, "charge_off": 0.15, "risk_weight": 100.0,
                          "servicing_cost": 0.40, "origination_cost": 0.50},
-    "heloc": {"runoff": 20.0, "discount_spread": 3.50, "growth": 5.0, "charge_off": 0.20, "risk_weight": 100.0,
+    "heloc": {"collateral_value": 50.0, "runoff": 20.0, "discount_spread": 3.50, "growth": 5.0, "charge_off": 0.20, "risk_weight": 100.0,
               "servicing_cost": 0.50, "fee_yield": 0.10, "origination_cost": 0.50},
     "other_real_estate": {"cpr": 8.0, "new_term": 180, "new_amortization": "level", "spread": 2.50,
                           "discount_spread": 2.50, "growth": 2.0, "charge_off": 0.15, "risk_weight": 100.0,
                           "servicing_cost": 0.40},
-    "commercial_re": {"cpr": 5.0, "cpr_per_100bp": 2.0, "new_term": 120, "new_amortization": "balloon",
+    "commercial_re": {"collateral_value": 60.0, "cpr": 5.0, "cpr_per_100bp": 2.0, "new_term": 120, "new_amortization": "balloon",
                       "spread": 2.60, "discount_spread": 2.60, "growth": 5.0, "charge_off": 0.25,
                       "risk_weight": 100.0, "servicing_cost": 0.40, "fee_yield": 0.10, "origination_cost": 0.75},
     "commercial_other": {"cpr": 5.0, "new_term": 60, "new_amortization": "level", "spread": 3.00,
@@ -415,7 +415,8 @@ def build(report, cu, curve=None):
                      "reported." % (factor, "{:,.0f}".format(net_charge_offs)))
     capacity = []
     if g("fhlb_line") > borrowed:
-        capacity.append({"name": "FHLB line, unused (call report)", "capacity": round(g("fhlb_line") - borrowed, -3)})
+        capacity.append({"name": "FHLB line, unused (call report)", "capacity": round(g("fhlb_line") - borrowed, -3),
+                         "secured": True})
     if g("clf_capacity") > 0:
         capacity.append({"name": "Central Liquidity Facility capacity (call report)", "capacity": round(g("clf_capacity"), -3)})
     raw = {
