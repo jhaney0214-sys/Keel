@@ -100,18 +100,33 @@ PV assets. Both follow NCUA's Examiner's Guide.
 
 A 5% bullet discounted on a flat 5% curve prices at par to the cent (tested).
 
-**NCUA NEV Supervisory Test.** The +300bp scenario is instantaneous, parallel
-and sustained. Thresholds are from Letter SL 22-01: a post-shock ratio above
-7% is low, 4–7% moderate, below 4% high; sensitivity below 40% is low, 40–65%
-moderate, above 65% high. The formula for "sensitivity" was not found in the
-NCUA text read, so Keel reports both the decline in the NEV ratio (used for
-the rating) and the decline in NEV. **Confirm which your examiner uses.**
-SL 22-01 also refers to standardized values for non-maturity shares. Keel
-takes decay, beta and discount spread as inputs; enter NCUA's values for the
-supervisory test.
+**No-maturity positions** (FHLB stock, a CUSO stake) count at book. They are
+redeemed at par, and discounting a 7% dividend as a perpetuity once valued
+FHLB stock at 150% of book.
+
+**NCUA NEV Supervisory Test.** Run as NCUA describes it: every non-maturity
+share is priced at **99.00 in the base case and 95.04 at +300bp** (a 1%
+benefit, then a further 4% decline), replacing the credit union's own share
+assumptions; every other position keeps its modelled value. The +300bp shock
+is instantaneous, parallel and sustained. The ratings, from Letter SL 22-01,
+are on the post-shock NEV ratio (above 7% low, 4–7% moderate, below 4% high)
+and the **NEV percent change** (a decline below 40% is low, 40–65% moderate,
+above 65% high). The decline in the ratio itself is shown for reference, not
+rated. Sources: NCUA's supervisory framework letter and Examiner's Guide, and
+ALM First's description of the standardized prices, read 2026-09-27.
+
+The report also shows NEV on the credit union's own assumptions, under every
+instantaneous scenario including curve shapes. The two views can disagree
+sharply, and seeing both is the point.
 
 ## Liquidity
 
+- **Survival** is the first month *within the first twelve* that available
+  liquidity is negative under the stress. Beyond a year, the stress's frozen
+  share balances describe a different plan, not a stress. On the large
+  sample, a "survival" of month 48 came from plan growth alone.
+- **The plan's own funding need** is the peak overnight borrowing in the
+  base plan, with the month it occurs.
 - **Stress** (going concern, `stress=True`). For `stress_months`, liability
   products take in no new money and lose `stress_runoff` of their opening
   balance, spread evenly across the months, on top of ordinary decay. After
@@ -125,9 +140,74 @@ supervisory test.
   of contingent sources; $50M and up, a contingency funding plan; $250M and
   up, also access to a contingent federal liquidity source.
 
+## Scenarios
+
+Parallel shocks of ±100, ±200 and ±300bp, instantaneous and held; ramps
+reaching their move over a stated number of months; and **shapes**, a move
+given at chosen tenors and interpolated between them (the samples carry a
+flattener, a steepener and a short-end +200bp). In a shaped scenario each
+rate moves by the shift at its own tenor. Prepayment responds to the ten-year
+point, which mortgage rates follow, and share decay to the short rate, which
+members compare. Rates are floored at `rate_floor`.
+
+## Instruments
+
+Beyond level, bullet and non-maturity positions:
+- **Balloon:** amortizes as if over `amort_months`, prepays like a level
+  loan, and is due in full at maturity.
+- **Callable:** due at maturity. From its first call date it is called in any
+  month when its coupon exceeds the scenario rate for its remaining term,
+  plus the product's spread, by more than `call_threshold`.
+- **ARMs** reset first at `next_reset_months`, then every `reset_months`.
+
+## Importing core-system files
+
+`keel/importer.py` reads loans, certificates, tiered shares, securities,
+borrowings and the trial balance.
+- **Loans** pool on product, rate type, index and margin, next-reset year,
+  remaining term within 6 months, rate within 25bp, and balloon or not.
+  Revolving loans (no maturity date) pool as non-maturity assets.
+- **Certificates** pool on remaining term and rate.
+- **Share tiers** each become a position.
+- **Securities and borrowings** stay one position each. A security's balance
+  is its book value and its rate is its book yield. MBS and CMOs amortize
+  over their WAM.
+- **GL lines** supply cash, fixed assets, the NCUSIF deposit, other assets,
+  other liabilities and the allowance. The allowance is a negative,
+  non-earning asset: the one position allowed below zero.
+
+Before modelling, each detail file is tied to its GL line (loans, investments
+at book, certificates, non-maturity shares, borrowings), and each tie is a
+reconciliation check.
+
+## Portfolio measures
+
+- **Investments:** market value is the base-scenario PV. Unrealized gain or
+  loss is market value less book. WAL is the principal-weighted average month
+  of the base runoff, in years. Effective duration = (PV(−100bp) −
+  PV(+100bp)) ÷ (2 × PV × 1%).
+- **Repricing gap:** variable positions count in full at their next reset,
+  and everything else by its base-scenario principal flows, in bands from 0–3
+  months to over 10 years.
+
+## What-ifs
+
+`keel/whatif.py` applies assumption changes, by dotted path in the file's
+units, and balance-sheet actions on the analysis date. It then runs the base
+and the changed book through the same measures. Actions settle through cash:
+- a new liability adds cash, and a new asset spends it;
+- a sale is priced at market (the sold share of the position's base PV), and
+  the difference from book is a realized gain or loss that lowers or raises
+  net worth on the analysis date;
+- a borrowing that names its `draws_on` contingent source reduces that
+  source's capacity, so the stress does not count the same funding twice.
+
+The base book is never changed.
+
 ## Reconciliation
 
-Four checks run on every report:
+Four checks run on every report, and one per GL tie when the book came from
+core-system files:
 
 1. Assets = liabilities + equity in every month of every scenario, to $1.
 2. Year-one NII is the same by two paths: the income statement's lines, and
@@ -143,8 +223,8 @@ fails, so the checks can't pass vacuously.
 
 - One curve drives everything: no separate funding, mortgage or deposit
   curves, and no basis risk between indexes beyond fixed spreads.
-- Shocks are parallel or linear ramps. No twists, key-rate shocks or
-  non-parallel curves yet.
+- Curve shapes are interpolated moves at chosen tenors, not a fitted
+  key-rate or principal-component model.
 - No option-adjusted valuation: prepayment and decay respond to rate levels
   through the stated sensitivities, not to a rate-path simulation.
 - Caps and floors bind on the rate path; their option value is not priced
@@ -153,3 +233,9 @@ fails, so the checks can't pass vacuously.
   no extra runoff is applied to certificates that have not yet matured.
 - Fee income is flat, and operating expense grows once a year.
 - No CECL. Credit losses are a flat charge-off rate by product.
+- Pooling approximates each pool's cash flows with its weighted rate and
+  term. Very wide pools would blur amortization, which is why the bands are
+  narrow.
+- Securities earn their book yield on book value; premium and discount
+  amortization is folded into the yield, not modelled separately.
+- Delinquent loans still accrue; there is no non-accrual treatment yet.

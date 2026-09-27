@@ -2,70 +2,122 @@
 
 **ALM, the plan and liquidity for credit unions, from one projection, so the three always agree.**
 
-*Keel is a working name, not yet checked for conflicts.*
-
 A credit union's rate-risk model, budget and liquidity plan usually live in
 different places, and when they are asked the same question, such as next
 year's NII, they give different answers. Keel runs one monthly projection of
 every position and reads all three from it:
 
-- **Interest-rate risk:** NII by scenario for years 1 and 2, and NEV under
-  parallel shocks of ±100 to ±300bp, with the **NCUA NEV Supervisory Test**
-  (+300bp; SL 22-01 thresholds).
+- **Interest-rate risk:** NII by scenario for years 1 and 2; NEV under
+  parallel shocks of ±100 to ±300bp and under curve-shape scenarios; the
+  **NCUA NEV Supervisory Test** as NCUA runs it (below); and the repricing
+  gap.
 - **The plan:** a five-year income statement and balance sheet, under the
   base case and under every scenario.
-- **Liquidity:** the stress survival horizon, the contractual gap, ratios,
-  and which tier of 12 CFR 741.12 applies.
-- **Reconciliation:** four checks, run on every report, that test the three
-  really are one model.
+- **Liquidity:** a first-year survival horizon under a share-runoff stress,
+  the plan's own funding need, the contractual gap, ratios, and which tier of
+  12 CFR 741.12 applies.
+- **Portfolios:** investments by type with market value, unrealized gain or
+  loss, WAL and effective duration; the largest holdings; loans by product;
+  the certificate maturity ladder.
+- **Reconciliation:** checks run on every report that the three really are
+  one model, and that every detail file ties to the general ledger.
+- **What-ifs:** change an assumption or the balance sheet and see every
+  measure move, side by side with the base.
 
 **It runs on the credit union's own machine and sends nothing anywhere.**
-Standard-library Python 3.8+, no dependencies to install, no network calls.
-The inputs are two plain-text files a validator can read in full, and every
-assumption is printed in the report. [`METHODOLOGY.md`](METHODOLOGY.md) is
-written for the model validator.
+Standard-library Python 3.8+, no dependencies, no network calls. Every
+assumption is printed in the report, and [`METHODOLOGY.md`](METHODOLOGY.md)
+is written for the model validator.
 
 ## Try it
 
 ```bash
-python -m keel run examples/sample-cu --name "Sample Credit Union (synthetic)"
+python tools/make_samples.py                 # three synthetic credit unions, in about two seconds
+python -m keel run examples/mid-cu           # -> examples/mid-cu/report/report.html
+python -m keel whatif examples/mid-cu examples/whatifs/fhlb-for-auto-growth.json
 ```
 
-This writes `examples/sample-cu/report/report.html` and a monthly CSV. The
-sample is a synthetic $560M credit union; every figure in it is invented.
+| Sample | Size | Shape | Supervisory test |
+|---|---|---|---|
+| `small-cu` | $85M | consumer lending, very liquid, just over NCUA's $50M line | Low |
+| `mid-cu` | $560M | close to the system's own mix, some commercial real estate | Moderate |
+| `large-cu` | $2.4B | mortgage-heavy, certificate-funded, FHLB borrowing | High |
+| `sample-cu` | $560M | a hand-written `positions.csv`, for reading the format | High |
+
+The generated three are written as a core system exports them, calibrated to
+NCUA's Quarterly Credit Union Data Summary for 2026Q2. **Every figure is
+invented** from a fixed seed; none describes a real institution.
 
 ## Inputs
 
-**`positions.csv`**, one row per instrument or pool: `id, name, product,
-side, balance, rate, rate_type (fixed | variable | administered | none),
-index, margin, reset_months, term_months, amortization (level | bullet |
-nonmaturity | none), floor, cap`. Rates are in percent. Cash is the row with
-product `cash`.
+**From core-system files** (a folder with `data/`):
 
-**`assumptions.json`**: the curve, the indexes, each product's behaviour
-(prepayment and its rate sensitivity, share decay and beta, new-business term
-and spread, NEV discount spread, planned growth, charge-offs, liquidity
-haircut and stress runoff), income and expense, and the contingent liquidity
-sources. See the sample, whose `notes` explain the units.
+| File | Rows |
+|---|---|
+| `loans.csv` | one per loan: product code, balance, rate, fixed/variable, index, margin, next reset, caps and floors, origination and maturity dates, amortization period for balloons, days delinquent |
+| `certificates.csv` | one per certificate: product, balance, rate, open and maturity dates |
+| `shares.csv` | non-maturity shares by product and balance tier: accounts, balance, rate |
+| `investments.csv` | one per security: type, par, book value, coupon, book yield, maturity, next call date, WAM and CPR for MBS and CMOs, AFS or HTM |
+| `borrowings.csv` | one per borrowing: lender, balance, rate, maturity |
+| `gl.csv` | the trial balance the detail must tie to |
+| `product_map.json` | core product codes to Keel products, and the GL accounts for cash, fixed assets, the NCUSIF deposit, other assets, the allowance and other liabilities |
+
+The importer pools loans and certificates that behave alike (same product,
+rate type, index and margin, reset timing, remaining term within 6 months and
+rate within 25bp) at their balance-weighted rate. It keeps each security and
+borrowing on its own, and writes the pools to `report/positions_imported.csv`.
+It ties every detail file to its GL line before modelling anything.
+
+**Or directly:** `positions.csv`, one row per instrument or pool; see
+`examples/sample-cu`.
+
+**Both need `assumptions.json`**: the curve and indexes; each product's
+behaviour (prepayment and its rate sensitivity, share decay and beta,
+new-business term and spread, NEV discount spread, planned growth,
+charge-offs, liquidity haircut and stress runoff, call threshold); income and
+expense; extra scenarios, including curve shapes; and the contingent
+liquidity sources. The samples' `notes` explain the units.
 
 Inputs that would make the projection wrong rather than merely odd stop the
-run with the file and line: a term loan without a term, a duplicate id, a
-product with no assumptions, a variable rate without an index.
+run with the file and row: an unmapped product code, a term loan without a
+term, a balloon shorter than its term, a duplicate id, a product with no
+assumptions, a what-if path that does not exist.
+
+## What-ifs
+
+A what-if is a small JSON file: `assumptions` changed by dotted path (in
+the file's own units), and `actions` on the balance sheet (`add` a position,
+`scale` a product). Actions settle through cash as the real transaction would:
+a sale is priced at market and realizes its gain or loss, and a borrowing
+that names its `draws_on` source uses up that much contingent capacity. See
+`examples/whatifs/` for three.
+
+## The NCUA NEV Supervisory Test
+
+Run as NCUA describes it. Non-maturity shares are priced at the standardized
+**99.00 in the base case and 95.04 at +300bp**, whatever the credit union's
+own assumptions say, and every other position keeps its modelled value. The
+two ratings are the post-shock NEV ratio and the **NEV percent change**, on
+Letter SL 22-01's thresholds. The report shows the credit union's
+own-assumption NEV beside it, because the two can disagree sharply: on
+`sample-cu` the own-assumption view says Low and the supervisory test High.
 
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 21 tests
+python -m unittest discover -s tests      # 42 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,
 a bond yielding its discount rate valued at par, a 10bp move from a 10% beta,
-SL 22-01's bands, and 741.12's tiers. One breaks the balance sheet on purpose
-to show the reconciliation catches it.
+NCUA's standardized share prices, SL 22-01's bands and 741.12's tiers. Others
+pin behaviour that was once wrong: FHLB stock valued as a perpetuity, an
+advance that raised stress liquidity, a sale at book that hid its loss. One
+breaks the balance sheet on purpose to show the reconciliation catches it.
 
 ## Status
 
-A first slice, built 2026-09-27 and run only on synthetic data. **It has not
-been validated against a production ALM model.** That comparison, on a real
-credit union's positions, is the next test that matters. What it does not do
-yet is listed at the end of [`METHODOLOGY.md`](METHODOLOGY.md).
+A working prototype, built 2026-09-27 and run only on synthetic data. **It
+has not been compared against a production ALM model.** That comparison, on
+a real credit union's files, is the next test that matters. What it does not
+do yet is at the end of [`METHODOLOGY.md`](METHODOLOGY.md).
