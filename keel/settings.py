@@ -10,6 +10,7 @@ and writes has one sheet per kind of setting, in the same units as the JSON
     Products       product | cpr | cpr_per_100bp | ... (a blank cell is the default)
     Scenarios      name | shock_bp | ramp_months | shape ("1:200, 24:100, 120:0")
     Contingent     name | capacity
+    Limits         key | value | note         the board's policy limits (blank: default)
     Notes          key | text
 
 Both forms become the same dictionary before anything reads them, so a
@@ -40,7 +41,7 @@ SETTINGS = (  # key, type, note for the workbook
     ("stress_months", "int", "Length of the liquidity stress, months."),
 )
 PRODUCT_FIELDS = [f.name for f in dataclasses.fields(Product) if f.name != "name"]
-SHEETS = ("Settings", "Curve", "Indexes", "Products", "Scenarios", "Contingent", "Notes")
+SHEETS = ("Settings", "Curve", "Indexes", "Products", "Scenarios", "Contingent", "Limits", "Notes")
 
 
 def find(folder):
@@ -178,6 +179,19 @@ def from_workbook(book, path="settings workbook"):
         for r in xlsx.table(book.get("Contingent", [])) if xlsx.as_text(r.get("name"))]}
     if "stress_months" in raw:
         raw["liquidity"]["stress_months"] = raw.pop("stress_months")
+    if "Limits" in book:
+        from keel.model import LIMITS
+        kinds = {k for k, _, _, _ in LIMITS} | {"warning_band"}
+        raw["limits"] = {}
+        for r in xlsx.table(book["Limits"]):
+            key = xlsx.as_text(r.get("key"))
+            if not key:
+                continue
+            if key not in kinds:
+                raise InputError("%s, Limits: unknown key %r" % (path, key))
+            value = _number(r.get("value"), "float", "%s, Limits, %s" % (path, key))
+            if value is not None:
+                raw["limits"][key] = value
     raw["notes"] = {xlsx.as_text(r.get("key")): xlsx.as_text(r.get("text"))
                     for r in xlsx.table(book.get("Notes", [])) if xlsx.as_text(r.get("key"))}
     for key in ("as_of",):
@@ -206,8 +220,17 @@ def to_workbook(raw):
          ", ".join("%s:%g" % (t, bp) for t, bp in sorted(s["shape"].items(), key=lambda x: float(x[0])))
          if s.get("shape") else None] for s in raw.get("extra_scenarios", [])]
     contingent = [["name", "capacity"]] + [[c["name"], c["capacity"]] for c in liquidity.get("contingent", [])]
+    from keel.model import LIMITS
+    set_limits = raw.get("limits", {})
+    limits = [["key", "value", "note"]]
+    for key, kind, default, label in LIMITS:
+        value = set_limits.get(key)
+        limits.append([key, value, "%s (%s). Blank uses the default, %g." % (
+            label, "at most" if kind == "max" else "at least", default)])
+    limits.append(["warning_band", set_limits.get("warning_band"),
+                   "How close to a limit counts as near it, percent of the limit. Default 10."])
     notes_sheet = [["key", "text"]] + [[k, v] for k, v in raw.get("notes", {}).items()]
-    return dict(zip(SHEETS, (settings, curve, indexes, products, scenarios, contingent, notes_sheet)))
+    return dict(zip(SHEETS, (settings, curve, indexes, products, scenarios, contingent, limits, notes_sheet)))
 
 
 def convert(source, target):

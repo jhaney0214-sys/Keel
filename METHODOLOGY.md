@@ -204,6 +204,27 @@ reconciliation check.
   and everything else by its base-scenario principal flows, in bands from 0–3
   months to over 10 years.
 
+## Policy limits and the report
+
+`keel/results.py` computes every number the report shows, once; the HTML
+(`report.py`), its charts (`charts.py`) and the Excel workbook (`export.py`)
+only format it. Each limit is measured as follows:
+
+- NII declines: year-one NII in the parallel shock against the base, worst of
+  the pair.
+- NEV decline and NEV ratio: own assumptions (not the supervisory prices),
+  worst of +300 and −300bp.
+- Net worth: the lowest month-end ratio of the five-year base plan.
+- Liquidity ratios: today's balance sheet.
+- Survival: the stress month in which available liquidity first goes
+  negative, less one. Liquidity that lasts the measured year has no number
+  and passes any limit up to twelve months.
+
+A maximum is *near* when the value is within `warning_band` percent of the
+limit below it, and a minimum when within that band above it. The what-if
+page measures the same limits the same way from its own runs; a test holds
+the two to the same values.
+
 ## What-ifs
 
 `keel/whatif.py` applies assumption changes, by dotted path in the file's

@@ -86,14 +86,21 @@ class Server(object):
                 rows.append("<tr><td>%s</td>%s</tr>" % (html.escape(product.replace("_", " ")), "".join(cells)))
         sellable = sorted(p for p in present if a.products[p].liquid)
         sources = "".join("<option>%s</option>" % html.escape(n) for n, _ in a.contingent)
-        base_rows = "".join("<tr><td>%s</td><td class='num'>%s</td></tr>" % (html.escape(label), whatif._fmt(v, kind))
-                            for label, v, kind in self.base)
         return """<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width, initial-scale=1'><title>Keel what-if</title>
-<style>%s input,select,button{font:inherit;padding:.25rem .4rem;} button{margin-top:1rem;padding:.5rem 1rem;}
-fieldset{border:1px solid var(--rule);margin:1rem 0;padding:.75rem 1rem;} legend{font-weight:600;}</style></head>
-<body><main><h1>What-if</h1><p class='muted'>%s, as of %s. Served from this computer to this computer;
-nothing leaves it. Dollars in thousands.</p>%s
+<style>%s
+input,select,button{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--rule);
+border-radius:4px;padding:.3rem .45rem} input:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px}
+td input{width:5.5rem;text-align:right;font-variant-numeric:tabular-nums}
+label{display:inline-flex;flex-direction:column;gap:.2rem;font-size:.82rem;color:var(--ink-2);margin:0 1rem .6rem 0}
+label input,label select{color:var(--ink);font-size:.95rem}
+button{background:var(--accent);color:#fff;border:0;font-weight:600;padding:.6rem 1.4rem;margin-top:.6rem;cursor:pointer}
+button:hover{filter:brightness(1.1)}
+fieldset{border:1px solid var(--rule);border-radius:4px;margin:1rem 0;padding:.8rem 1rem .4rem}
+legend{font-weight:600;padding:0 .3rem} .message{padding:.6rem .85rem;background:var(--panel);border-radius:4px}
+</style></head><body><header class='top'><div class='inner'><h1>What-if</h1><p class='sub'>%s, as of %s. Change
+behaviour, the plan, borrowing or the portfolio and see every measure and limit move. Served from this computer to
+this computer; nothing leaves it.</p></div></header><main>%s
 <form method='post' action='/whatif'>
 <label>Name <input name='name' size='50' placeholder='What are we asking?'></label>
 <fieldset><legend>Behaviour and plan (today's values shown)</legend><div class='wrap'><table><thead><tr>
@@ -109,12 +116,12 @@ nothing leaves it. Dollars in thousands.</p>%s
 <label>Percent <input name='sell_percent' size='5' inputmode='decimal' placeholder='50'></label>
 </fieldset>
 <button type='submit'>Run</button></form>
-<h2>Base</h2><div class='wrap'><table><tbody>%s</tbody></table></div>
+<h2 style='margin-top:2.6rem'>Today, before any change</h2>%s
 </main></body></html>""" % (
             STYLE, html.escape(os.path.basename(os.path.abspath(self.folder))), html.escape(a.as_of),
-            "<p><strong>%s</strong></p>" % html.escape(message) if message else "",
+            "<p class='message'><strong>%s</strong></p>" % html.escape(message) if message else "",
             "".join("<th>%s</th>" % html.escape(label) for _, label, _ in LEVERS), "".join(rows), sources,
-            "".join("<option>%s</option>" % html.escape(p) for p in sellable), base_rows)
+            "".join("<option>%s</option>" % html.escape(p) for p in sellable), whatif.tables(self.base))
 
     def run(self, fields):
         spec = form_to_spec(fields, self.assumptions)

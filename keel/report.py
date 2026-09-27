@@ -1,8 +1,13 @@
-"""One HTML report, readable offline, and CSVs of the monthly projection.
+"""The ALCO report: one HTML page, readable offline and printable as a board packet.
 
-Sections in the order an ALCO packet runs: summary, interest-rate risk (NII
-and NEV, with the NCUA test), the plan (FP&A), liquidity, the reconciliation
-that ties them, and every assumption the run used.
+It opens with what a meeting needs first (plain-language findings, the
+headline numbers and every policy limit with its status), then the detail in
+the order an ALCO packet runs: interest-rate risk, the plan, liquidity,
+portfolios, the reconciliation that ties them together, and every assumption
+the run used. Each chart sits above the table holding its exact numbers.
+
+Everything shown comes from `results.compute`, as does the Excel workbook
+written beside it (`results.xlsx`), so the two cannot disagree.
 """
 
 import csv
@@ -10,276 +15,442 @@ import datetime
 import html
 import os
 
-from keel import engine, importer, measures
-from keel.engine import CASH
+from keel import charts, export, importer, results as results_module
+
+STATUS = {"within": ("good", "&#10003;", "Within"), "near": ("warning", "&#9650;", "Near"),
+          "breach": ("critical", "&#10005;", "Breach")}
+RATING = {"Low": "within", "Moderate": "near", "High": "breach"}
+
+# Chart colours are the dataviz reference palette's blue and its diverging
+# red, validated (light and dark) against these surfaces; status colours are
+# its reserved set and always travel with an icon and a word.
+STYLE = """
+:root{color-scheme:light;--surface:#fcfcfb;--panel:#f3f3f0;--ink:#0b0b0b;--ink-2:#52514e;--ink-3:#77766f;
+--rule:#e2e1dc;--accent:#2a78d6;--series-1:#2a78d6;--neg:#e34948;--good:#0ca30c;--warning:#fab219;--critical:#d03b3b;}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--surface:#1a1a19;--panel:#252523;
+--ink:#f4f4f1;--ink-2:#c3c2b7;--ink-3:#9a998f;--rule:#3a3a37;--accent:#3987e5;--series-1:#3987e5;--neg:#e66767;}}
+:root[data-theme="dark"]{color-scheme:dark;--surface:#1a1a19;--panel:#252523;--ink:#f4f4f1;--ink-2:#c3c2b7;
+--ink-3:#9a998f;--rule:#3a3a37;--accent:#3987e5;--series-1:#3987e5;--neg:#e66767;}
+*{box-sizing:border-box} html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--surface);color:var(--ink);font:15px/1.55 -apple-system,"Segoe UI",Inter,Roboto,sans-serif}
+header.top .inner,main,nav .inner,footer{max-width:76rem;margin:0 auto;padding-left:1rem;padding-right:1rem}
+header.top{border-bottom:1px solid var(--rule)} header.top .inner{padding-top:1.6rem;padding-bottom:1rem}
+h1{font-size:1.75rem;line-height:1.2;margin:0 0 .3rem;letter-spacing:-.01em}
+.sub{color:var(--ink-2);margin:0 0 .3rem;font-size:.92rem}
+nav{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--rule)}
+nav .inner{display:flex;gap:1.1rem;overflow-x:auto;white-space:nowrap;padding-top:.55rem;padding-bottom:.55rem;font-size:.88rem}
+nav a{color:var(--ink-2);text-decoration:none} nav a:hover{color:var(--accent)}
+main{padding-top:.4rem;padding-bottom:3rem} section,h3[id]{scroll-margin-top:3.2rem}
+h2{font-size:1.3rem;margin:2.4rem 0 .9rem;padding-bottom:.45rem;border-bottom:1px solid var(--rule)}
+h3{font-size:1rem;margin:1.8rem 0 .5rem}
+p{margin:0 0 .75rem;max-width:64rem} .muted{color:var(--ink-2);font-size:.86rem} a{color:var(--accent)}
+.findings{display:grid;gap:.5rem;margin:.4rem 0 1.2rem;padding:0;list-style:none}
+.findings li{display:grid;grid-template-columns:8.5rem 1fr;gap:1rem;padding:.55rem .85rem;background:var(--panel);border-radius:4px}
+.findings b{color:var(--ink-2);font-weight:600;font-size:.86rem;padding-top:.1rem}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.8rem;margin:1rem 0 1.2rem}
+.tile{border:1px solid var(--rule);border-radius:4px;padding:.8rem .95rem}
+.tile .v{display:block;font-size:1.55rem;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.tile .l{display:block;color:var(--ink-2);font-size:.83rem;margin:.15rem 0 .4rem}
+.chip{display:inline-flex;align-items:center;gap:.35rem;font-size:.78rem;font-weight:600;padding:.08rem .5rem .08rem .2rem;
+border-radius:999px;border:1px solid var(--rule);color:var(--ink);white-space:nowrap}
+.chip i{font-style:normal;width:1rem;height:1rem;border-radius:50%;display:inline-grid;place-items:center;font-size:.62rem;color:#fff}
+.chip.good i{background:var(--good)} .chip.warning i{background:var(--warning);color:#0b0b0b} .chip.critical i{background:var(--critical)}
+.default{color:var(--ink-3);font-size:.78rem}
+.wrap{overflow-x:auto;margin:.4rem 0 1rem}
+table{border-collapse:collapse;font-size:.87rem}
+th{font-size:.74rem;color:var(--ink-2);text-align:left;font-weight:600;padding:.35rem .65rem;border-bottom:1px solid var(--ink);white-space:nowrap}
+td{padding:.32rem .65rem;border-bottom:1px solid var(--rule);white-space:nowrap}
+tr.total td{font-weight:600;border-top:1px solid var(--ink-2)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.pass{color:var(--good);font-weight:600} .fail{color:var(--critical);font-weight:600}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,26rem),1fr));gap:1rem 2.2rem;margin:.6rem 0 .8rem}
+svg.chart{width:100%;height:auto;max-width:46rem;display:block;overflow:visible;margin:.4rem 0}
+.c-title{font-size:13px;font-weight:600;fill:var(--ink)}
+.c-label{font-size:11.5px;fill:var(--ink-2)} .c-value{font-size:11.5px;fill:var(--ink)}
+.c-tick{font-size:10.5px;fill:var(--ink-3)}
+.c-grid{stroke:var(--rule);stroke-width:1} .c-axis{stroke:var(--ink-2);stroke-width:1}
+.c-limit{stroke:var(--critical);stroke-width:1.5;stroke-dasharray:4 3}
+.c-pos{fill:var(--series-1)} .c-neg{fill:var(--neg)}
+.c-line{fill:none;stroke:var(--series-1);stroke-width:2}
+.c-dot{fill:var(--series-1);stroke:var(--surface);stroke-width:2}
+.c-hit{fill:transparent} .c-mark:hover .c-hit{fill:var(--panel)}
+.downloads{display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;font-size:.88rem;margin:.5rem 0 0}
+footer{padding-top:1.2rem;padding-bottom:3rem;color:var(--ink-3);font-size:.8rem;border-top:1px solid var(--rule)}
+@media (max-width:40rem){.findings li{grid-template-columns:1fr;gap:.1rem} h1{font-size:1.4rem}}
+@media print{nav,.downloads{display:none} body{font-size:10pt;background:#fff;color:#000}
+h2{break-before:page;margin-top:0} #summary h2{break-before:auto}
+table,svg.chart,.tile,.findings li{break-inside:avoid} *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.wrap{overflow:visible} a{color:inherit;text-decoration:none}}
+"""
 
 
-def _m(value):
+# --------------------------------------------------------------- formatting
+
+def k(value):
     """Dollars in thousands, the way ALCO packets read."""
     return "{:,.0f}".format(value / 1000.0)
 
 
-def _p(value, places=2):
+def pct(value, places=2):
     return ("{:,.%df}%%" % places).format(100.0 * value)
 
 
-def _table(head, rows, numeric_from=1):
-    cells = ["<table><thead><tr>"]
-    cells += ['<th%s>%s</th>' % (' class="num"' if i >= numeric_from else "", html.escape(h))
-              for i, h in enumerate(head)]
-    cells.append("</tr></thead><tbody>")
-    for row in rows:
-        cells.append("<tr>" + "".join('<td%s>%s</td>' % (' class="num"' if i >= numeric_from else "", c)
-                                      for i, c in enumerate(row)) + "</tr>")
-    cells.append("</tbody></table>")
-    return '<div class="wrap">' + "".join(cells) + "</div>"
+def signed(value, places=1):
+    """+1.5%; a value that rounds to zero reads 0.0%, never -0.0%."""
+    text = ("{:+,.%df}%%" % places).format(100.0 * value)
+    return text[1:] if float(text[1:-1].replace(",", "")) == 0 else text
 
 
-STYLE = """
-:root{--paper:#fcfcfa;--ink:#1b1d1c;--muted:#5d625f;--rule:#dcdfdb;--accent:#1f5f7a;--good:#2d6a3e;--bad:#9b2c2c;}
-@media (prefers-color-scheme:dark){:root{--paper:#131515;--ink:#e7e9e6;--muted:#9ba09c;--rule:#2b2f2d;--accent:#7fb7d0;--good:#7cc08a;--bad:#e08a8a;}}
-body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 -apple-system,'Segoe UI',Inter,sans-serif;}
-main{max-width:72rem;margin:0 auto;padding:2rem 1.25rem 4rem;}
-h1{font-size:1.9rem;margin:0 0 .25rem;} h2{font-size:1.35rem;margin:2.5rem 0 .75rem;padding-bottom:.4rem;border-bottom:1px solid var(--rule);}
-h3{font-size:1.05rem;margin:1.5rem 0 .5rem;} p{margin:0 0 .8rem;max-width:62rem;} .muted{color:var(--muted);font-size:.9rem;}
-.wrap{overflow-x:auto;margin:.5rem 0 1rem;} table{border-collapse:collapse;font-size:.92rem;min-width:28rem;}
-th{font-size:.78rem;color:var(--muted);text-align:left;font-weight:600;padding:.35rem .7rem;border-bottom:1px solid var(--ink);white-space:nowrap;}
-td{padding:.35rem .7rem;border-bottom:1px solid var(--rule);white-space:nowrap;} .num{text-align:right;font-variant-numeric:tabular-nums;}
-.pass{color:var(--good);font-weight:600;} .fail{color:var(--bad);font-weight:600;}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:1rem;margin:1rem 0;}
-.tile{border:1px solid var(--rule);padding:.8rem 1rem;} .tile b{display:block;font-size:1.5rem;font-variant-numeric:tabular-nums;}
-.tile span{color:var(--muted);font-size:.85rem;}
-"""
+def signed_points(places):
+    """A chart formatter for values already in percent."""
+    return lambda v: signed(v / 100.0, places)
 
 
-def build(positions, assumptions, out_dir, name="Credit union", imported=None):
-    a = assumptions
-    runs = {s.name: _going(positions, a, s) for s in a.scenarios}
-    base_run = runs["base"]
-    nevs = {s.name: measures.nev(positions, a, s) for s in a.scenarios if s.instantaneous}
-    supervisory = {name: measures.nev(positions, a, s, supervisory=True)
-                   for s in a.scenarios for name in [s.name] if s.parallel and s.shock_bp in (0, 300)}
-    test = measures.ncua_test(supervisory["base"], supervisory["+300"])
-    stressed = _going(positions, a, a.scenarios[0], stress=True)
-    survival = measures.survival(stressed)
-    checks = measures.reconcile(positions, a, runs)
-    if imported is not None:
-        for tie in imported.ties:
-            checks.append(measures.Check("Detail ties to the general ledger: %s" % tie.line, tie.ties,
-                                         "detail $%s, ledger $%s, difference $%.2f" % (
-                                             "{:,.2f}".format(tie.detail), "{:,.2f}".format(tie.ledger),
-                                             tie.difference)))
-    gap = measures.contractual_gap(positions, a, a.scenarios[0], 12)
-    ratios = measures.ratios(positions, a)
-    total_assets = sum(p.balance for p in positions if p.side == "asset")
-    base_y1 = measures.income_statement(measures.year(base_run, 1))["net_interest_income"]
+def esc(text):
+    return html.escape(str(text))
 
-    parts = ["<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>",
-             "<meta name='viewport' content='width=device-width, initial-scale=1'>",
-             "<title>%s: ALM, plan and liquidity, %s</title>" % (html.escape(name), a.as_of),
-             "<style>%s</style></head><body><main>" % STYLE,
-             "<h1>%s</h1><p class='muted'>ALM, plan and liquidity from one projection, as of %s. "
-             "Dollars in thousands.</p>" % (html.escape(name), a.as_of)]
-    if a.notes.get("about"):
-        parts.append("<p class='muted'>%s</p>" % html.escape(a.notes["about"]))
 
-    passed = sum(c.passed for c in checks)
-    parts.append("<div class='tiles'>")
-    for value, label in (
-            (_m(base_y1), "Year-one NII, base plan"),
-            (_p(test["post_shock_ratio"]), "NEV ratio after +300bp: %s" % test["ratio_rating"]),
-            (_p(-test["sensitivity_value_decline"], 1), "NEV change at +300bp: %s" % test["sensitivity_rating"]),
-            ("12 months+" if survival is None else "month %d" % survival,
-             "Survival under the %d-month stress" % a.stress_months),
-            ("%d of %d" % (passed, len(checks)), "Reconciliation checks passed")):
-        parts.append("<div class='tile'><b>%s</b><span>%s</span></div>" % (value, html.escape(label)))
-    parts.append("</div>")
+def chip(status, text=None):
+    cls, icon, word = STATUS[status]
+    return "<span class='chip %s'><i aria-hidden='true'>%s</i>%s</span>" % (cls, icon, esc(text or word))
 
-    # ---- ALM
-    parts.append("<h2>Interest-rate risk</h2><h3>Net interest income by scenario</h3>")
-    rows = []
-    for s in a.scenarios:
-        y1 = measures.income_statement(measures.year(runs[s.name], 1))["net_interest_income"]
-        y2 = measures.income_statement(measures.year(runs[s.name], 2))["net_interest_income"]
-        rows.append([html.escape(s.name), _m(y1), _p(y1 / base_y1 - 1, 1), _m(y2)])
-    parts.append(_table(["Scenario", "Year 1 NII", "vs base", "Year 2 NII"], rows))
-    parts.append("<p class='muted'>Going concern: balances follow the plan's growth, and maturing or "
-                 "repaid balances are replaced at the rates each scenario offers. Parallel scenarios move "
-                 "the whole curve on the analysis date and hold it; ramps reach their move over the stated "
-                 "months. Rates are floored at %.2f%%.</p>" % a.rate_floor)
 
-    parts.append("<h3>Net economic value</h3>")
-    base_nev = nevs["base"]
-    rows = []
-    for key, n in nevs.items():
-        rows.append([html.escape(key), _m(n.pv_assets), _m(n.pv_liabilities), _m(n.nev), _p(n.ratio),
-                     _p(n.nev / base_nev.nev - 1, 1)])
-    parts.append(_table(["Scenario", "PV assets", "PV liabilities", "NEV", "NEV ratio", "NEV vs base"], rows))
-    parts.append("<p class='muted'>This table uses the credit union's own share assumptions. NEV need not "
-                 "move in a straight line: floors on share rates stop liability costs falling in the down "
-                 "shocks while their present value keeps rising.</p>")
-    parts.append("<h3>NCUA NEV Supervisory Test</h3>")
-    parts.append(_table(["Supervisory basis", "PV assets", "PV liabilities", "NEV", "NEV ratio"], [
-        [key, _m(n.pv_assets), _m(n.pv_liabilities), _m(n.nev), _p(n.ratio)] for key, n in supervisory.items()]))
-    parts.append(
-        "<p>At +300bp: post-shock NEV ratio %s, <strong>%s</strong>; NEV change %s, <strong>%s</strong>. "
-        "Non-maturity shares are priced at NCUA's standardized 99.00 in the base case and 95.04 at +300bp; "
-        "every other position keeps its modelled value. Thresholds from Letter SL 22-01: post-shock ratio "
-        "above 7%% low, 4-7%% moderate, below 4%% high; NEV decline below 40%% low, 40-65%% moderate, above "
-        "65%% high. (The decline in the ratio itself, not rated: %s.)</p>" % (
-            _p(test["post_shock_ratio"]), test["ratio_rating"], _p(-test["sensitivity_value_decline"], 1),
-            test["sensitivity_rating"], _p(test["sensitivity_ratio_decline"], 1)))
+def table(head, rows, numeric_from=1, total_last=False):
+    out = ["<div class='wrap'><table><thead><tr>"]
+    out += ["<th%s>%s</th>" % (" class='num'" if i >= numeric_from else "", esc(h)) for i, h in enumerate(head)]
+    out.append("</tr></thead><tbody>")
+    for n, row in enumerate(rows):
+        cls = " class='total'" if total_last and n == len(rows) - 1 else ""
+        out.append("<tr%s>%s</tr>" % (cls, "".join(
+            "<td%s>%s</td>" % (" class='num'" if i >= numeric_from else "", c) for i, c in enumerate(row))))
+    out.append("</tbody></table></div>")
+    return "".join(out)
 
-    gap_rows, insensitive = measures.repricing_gap(positions, a)
+
+def label(product):
+    return esc(product.replace("_", " "))
+
+
+def limit_text(x):
+    unit = " months" if x.unit == "months" else "%"
+    return ("at most " if x.kind == "max" else "at least ") + "%g%s" % (x.limit, unit)
+
+
+def limit_value(x):
+    if x.value is None:
+        return "12+ months"
+    return "%.1f%s" % (x.value, " months" if x.unit == "months" else "%")
+
+
+# --------------------------------------------------------------- sections
+
+def summary(r):
+    a, t, L = r["assumptions"], r["test"], r["liquidity"]
+    limits = {x.key: x for x in r["limits"]}
+    parts = ["<section id='summary'><h2>Summary</h2><ul class='findings'>"]
+    parts += ["<li><b>%s</b><span>%s</span></li>" % (esc(h), esc(text)) for h, text in r["findings"]]
+    parts.append("</ul><div class='tiles'>")
+    worst = limits["nii_decline_300"]
+    passed = sum(c.passed for c in r["checks"])
+    tiles = [
+        ("$" + k(r["nii_base"]["y1"]) + "K", "Year-one net interest income, base plan", ""),
+        ("%+.1f%%" % -worst.value, "Year-one NII, worst of ±300bp", chip(worst.status, worst.status.title()
+                                                                          if worst.status != "within" else "Within limit")),
+        (pct(t["post_shock_ratio"]), "NCUA supervisory NEV ratio after +300bp",
+         chip(RATING[t["ratio_rating"]], t["ratio_rating"] + " risk")),
+        (signed(-t["sensitivity_value_decline"], 0), "NCUA supervisory NEV change at +300bp",
+         chip(RATING[t["sensitivity_rating"]], t["sensitivity_rating"] + " risk")),
+        ("12+ months" if L["survival"] is None else "Month %d" % L["survival"],
+         "Liquidity lasts, %d-month stress" % a.stress_months, chip(limits["survival_months_min"].status)),
+        ("%d of %d" % (passed, len(r["checks"])), "Reconciliation checks pass",
+         chip("within" if passed == len(r["checks"]) else "breach", "Tied" if passed == len(r["checks"]) else "Fails")),
+    ]
+    for value, text, status in tiles:
+        parts.append("<div class='tile'><span class='v'>%s</span><span class='l'>%s</span>%s</div>" % (
+            esc(value), esc(text), status))
+    parts.append("</div><h3 id='limits'>Policy limits</h3>")
+    rows = [[esc(x.label), limit_text(x) + (" <span class='default'>default</span>" if x.default else ""),
+             limit_value(x), chip(x.status)] for x in r["limits"]]
+    parts.append(table(["Measure", "Limit", "Today", "Status"], rows, numeric_from=2))
+    defaults = sum(1 for x in r["limits"] if x.default)
+    parts.append("<p class='muted'>%sNear means within %g%% of the limit.</p>" % (
+        "Limits marked default are Keel's typical values, not the board's; set the board's own in the Limits sheet "
+        "of the settings workbook (or \"limits\" in assumptions.json). " if defaults else
+        "Every limit here is the board's, from the settings. ", a.warning_band))
+    parts.append("</section>")
+    return "".join(parts)
+
+
+def rate_risk(r):
+    a = r["assumptions"]
+    limits = {x.key: x for x in r["limits"]}
+    shocked_nii = [x for x in r["nii"] if x["scenario"] != "base"]
+    shocked_nev = [x for x in r["nev"] if x["scenario"] != "base"]
+    nii_chart = charts.diverging_bars(
+        [(x["scenario"], 100 * x["y1_change"], "%s: year-one NII $%sK, %s vs base" % (
+            x["scenario"], k(x["y1"]), signed(x["y1_change"]))) for x in shocked_nii],
+        signed_points(1), "Year-one NII vs base", limit=limits["nii_decline_300"].limit,
+        limit_label="±300bp limit", both_sides=False)
+    nev_chart = charts.diverging_bars(
+        [(x["scenario"], 100 * x["change"], "%s: NEV $%sK, ratio %s, %s vs base" % (
+            x["scenario"], k(x["nev"]), pct(x["ratio"]), signed(x["change"]))) for x in shocked_nev],
+        signed_points(0), "NEV vs base, own assumptions", limit=limits["nev_decline_300"].limit,
+        limit_label="±300bp limit", both_sides=False)
+    parts = ["<section id='rate-risk'><h2>Interest-rate risk</h2><div class='charts'>%s%s</div>" % (
+        nii_chart, nev_chart)]
+    parts.append("<h3>Net interest income and earnings at risk ($000)</h3>")
+    parts.append(table(["Scenario", "Year 1 NII", "Year 1 vs base", "Year 2 NII", "24 months vs base"],
+                       [[esc(x["scenario"]), k(x["y1"]), signed(x["y1_change"]), k(x["y2"]), signed(x["m24_change"])]
+                        for x in r["nii"]]))
+    parts.append("<p class='muted'>Going concern: balances follow the plan, and what matures or repays is replaced "
+                 "at each scenario's rates. Parallel shocks move the whole curve on the analysis date and hold it; "
+                 "ramps reach their move over the stated months; shaped scenarios move each point of the curve by "
+                 "its own amount. The 24-month column catches the repricing a one-year view misses. Rates are "
+                 "floored at %.2f%%.</p>" % a.rate_floor)
+    parts.append("<h3>Net economic value, own assumptions ($000)</h3>")
+    parts.append(table(["Scenario", "PV assets", "PV liabilities", "NEV", "NEV ratio", "NEV vs base"],
+                       [[esc(x["scenario"]), k(x["pv_assets"]), k(x["pv_liabilities"]), k(x["nev"]), pct(x["ratio"]),
+                         signed(x["change"])] for x in r["nev"]]))
+    parts.append("<p class='muted'>NEV need not move in a straight line: floors on share rates stop liability costs "
+                 "falling in the down shocks while their present value keeps rising.</p>")
+    t, s = r["test"], r["supervisory"]
+    parts.append("<h3>NCUA NEV Supervisory Test ($000)</h3>")
+    parts.append(table(["Supervisory basis", "PV assets", "PV liabilities", "NEV", "NEV ratio"],
+                       [[esc(key), k(v["pv_assets"]), k(v["pv_liabilities"]), k(v["nev"]), pct(v["ratio"])]
+                        for key, v in s.items()]))
+    parts.append("<p>At +300bp: post-shock NEV ratio <b>%s</b> %s &nbsp; NEV change <b>%s</b> %s</p>" % (
+        pct(t["post_shock_ratio"]), chip(RATING[t["ratio_rating"]], t["ratio_rating"]),
+        signed(-t["sensitivity_value_decline"]), chip(RATING[t["sensitivity_rating"]], t["sensitivity_rating"])))
+    parts.append("<p class='muted'>Non-maturity shares at NCUA's standardized 99.00 (base) and 95.04 (+300bp); every "
+                 "other position at its modelled value. Thresholds from Letter SL 22-01: ratio above 7%% low, 4-7%% "
+                 "moderate, below 4%% high; NEV decline below 40%% low, 40-65%% moderate, above 65%% high. The fall "
+                 "in the ratio itself, not rated: %s.</p>" % pct(t["sensitivity_ratio_decline"], 1))
+    gap = r["gap"]
     parts.append("<h3>Repricing gap</h3>")
-    parts.append(_table(["Band", "Assets repricing", "Liabilities repricing", "Gap", "Cumulative gap",
-                         "Cumulative gap / assets"],
-                        [[g["band"], _m(g["assets"]), _m(g["liabilities"]), _m(g["gap"]), _m(g["cumulative"]),
-                          _p(g["cumulative_to_assets"], 1)] for g in gap_rows]))
-    parts.append("<p class='muted'>Base scenario. Variable-rate positions count in full at their next reset; "
+    parts.append(charts.columns(
+        [(_short_band(g["band"]), g["gap"] / 1e6, "%s: assets $%sK, liabilities $%sK, gap $%sK; cumulative %s of "
+          "assets" % (g["band"], k(g["assets"]), k(g["liabilities"]), k(g["gap"]), pct(g["cumulative_to_assets"], 1)))
+         for g in gap], _millions, "Gap by repricing band ($ millions)", signed=True))
+    parts.append(table(["Band", "Assets repricing", "Liabilities repricing", "Gap", "Cumulative gap",
+                        "Cumulative / assets"],
+                       [[esc(g["band"]), k(g["assets"]), k(g["liabilities"]), k(g["gap"]), k(g["cumulative"]),
+                         pct(g["cumulative_to_assets"], 1)] for g in gap]))
+    parts.append("<p class='muted'>Base scenario, $000. Variable-rate positions count in full at their next reset; "
                  "everything else by its principal cash flows, including prepayment and share decay. Not "
-                 "rate-sensitive: assets %s, liabilities %s.</p>" % (_m(insensitive["asset"]),
-                                                                      _m(insensitive["liability"])))
+                 "rate-sensitive: assets %s, liabilities %s.</p>" % (k(r["insensitive"]["asset"]),
+                                                                      k(r["insensitive"]["liability"])))
+    parts.append("</section>")
+    return "".join(parts)
 
-    # ---- FP&A
-    parts.append("<h2>The plan</h2><h3>Income statement, base scenario</h3>")
-    years = a.horizon_months // 12
-    statements = [measures.income_statement(measures.year(base_run, y)) for y in range(1, years + 1)]
+
+def _short_band(band):
+    return (band.replace(" months", "m").replace(" month", "m").replace(" years", "y").replace(" year", "y")
+            .replace("over ", ">").replace(" to ", "-").replace("-", "–"))
+
+
+def _millions(v):
+    return ("%+.0fM" if abs(v) >= 10 else "%+.1fM") % v
+
+
+def plan(r):
+    p = r["plan"]
+    years = ["Year %d" % y for y in range(1, p["years"] + 1)]
+    nw_limit = next(x.limit for x in r["limits"] if x.key == "net_worth_min")
+    income = charts.columns([(y, s["net_income"] / 1e6, "%s: net income $%sK" % (y, k(s["net_income"])))
+                             for y, s in zip(years, p["statements"])],
+                            lambda v: "$%.1fM" % v, "Net income by year, base plan ($ millions)",
+                            signed=any(s["net_income"] < 0 for s in p["statements"]))
+    path = p["net_worth_path"]
+    worth = charts.line([(m, 100 * v, "Month %d: net worth ratio %.2f%%" % (m, 100 * v))
+                         for m, v in enumerate(path, 1) if m % 6 == 0 or m == 1],
+                        lambda v: "%.1f%%" % v, "Net worth ratio, base plan", reference=nw_limit,
+                        reference_label="limit %g%%" % nw_limit, zero=False)
+    parts = ["<section id='plan'><h2>The plan</h2><div class='charts'>%s%s</div>" % (income, worth)]
     lines = (("Interest income", "interest_income"), ("Interest expense", "interest_expense"),
              ("Net interest income", "net_interest_income"), ("Fee and other income", "fee_income"),
              ("Operating expense", "operating_expense"), ("Credit losses", "credit_losses"),
              ("Net income", "net_income"))
-    rows = [[label] + [_m(s[key]) for s in statements] for label, key in lines]
-    parts.append(_table(["Line"] + ["Year %d" % y for y in range(1, years + 1)], rows))
-    parts.append("<h3>Balance sheet at each year end, base scenario</h3>")
-    ends = [base_run[12 * y - 1] for y in range(1, years + 1)]
-    products = sorted({p.product for p in positions} - {CASH}, key=lambda k: (
-        [p.side for p in positions if p.product == k][0] != "asset", k))
-    rows = [["Cash"] + [_m(m.cash) for m in ends]]
-    for product in products:
-        rows.append([html.escape(product.replace("_", " "))] + [_m(m.balances.get(product, 0.0)) for m in ends])
-    rows += [["Overnight borrowing"] + [_m(m.overnight) for m in ends],
-             ["Total assets"] + [_m(m.assets) for m in ends],
-             ["Total liabilities"] + [_m(m.liabilities) for m in ends],
-             ["Net worth"] + [_m(m.equity) for m in ends],
-             ["Net worth ratio"] + [_p(m.equity / m.assets) for m in ends]]
-    parts.append(_table(["Line"] + ["Year %d" % y for y in range(1, years + 1)], rows))
+    parts.append("<h3>Income statement, base scenario ($000)</h3>")
+    parts.append(table(["Line"] + years, [[n] + [k(s[key]) for s in p["statements"]] for n, key in lines],
+                       total_last=True))
+    ratio_lines = (("Yield on average assets", "yield_on_assets"), ("Cost of funds", "cost_of_funds"),
+                   ("Net interest margin", "nim"), ("Return on average assets", "roa"),
+                   ("Efficiency ratio", "efficiency"), ("Net worth ratio, year end", "net_worth_ratio"))
+    parts.append("<h3>Ratios</h3>")
+    parts.append(table(["Ratio"] + years, [[n] + [pct(x[key]) for x in p["ratios"]] for n, key in ratio_lines]))
+    parts.append("<p class='muted'>On average balances (the opening and each month end). Efficiency is operating "
+                 "expense over net interest income plus fees: lower is better.</p>")
+    parts.append("<h3>Balance sheet at each year end ($000)</h3>")
+    rows = [[label(b["line"])] + [k(v) for v in b["values"]] for b in p["balance_sheet"]]
+    rows += [["Total assets"] + [k(x["assets"]) for x in p["totals"]],
+             ["Total liabilities"] + [k(x["liabilities"]) for x in p["totals"]],
+             ["Net worth"] + [k(x["equity"]) for x in p["totals"]]]
+    parts.append(table(["Line"] + years, rows, total_last=True))
+    parts.append("<h3>The plan under each scenario ($000)</h3>")
+    parts.append(table(["Scenario", "Year 1 net income", "Net worth ratio, month 12", "Peak overnight borrowing"],
+                       [[esc(x["scenario"]), k(x["net_income_y1"]), pct(x["net_worth_m12"]), k(x["peak_overnight"])]
+                        for x in p["by_scenario"]]))
+    parts.append("</section>")
+    return "".join(parts)
+
+
+def liquidity(r):
+    L = r["liquidity"]
+    limits = {x.key: x for x in r["limits"]}
+    parts = ["<section id='liquidity'><h2>Liquidity</h2>"]
+    parts.append("<p><b>Regulatory tier (12 CFR 741.12):</b> %s. Total assets $%sK.</p>" % (
+        esc(L["tier"]), k(r["opening"]["assets"])))
     rows = []
-    for s in a.scenarios:
-        run = runs[s.name]
-        rows.append([html.escape(s.name), _m(measures.income_statement(measures.year(run, 1))["net_income"]),
-                     _p(run[11].equity / run[11].assets), _m(max(m.overnight for m in run))])
-    parts.append("<h3>The plan under each scenario</h3>")
-    parts.append(_table(["Scenario", "Year 1 net income", "Net worth ratio, month 12",
-                         "Peak overnight borrowing"], rows))
+    for key in ("liquid_to_shares_min", "loans_to_shares_max", "borrowings_to_assets_max"):
+        x = limits[key]
+        rows.append([esc(x.label), limit_value(x), limit_text(x), chip(x.status)])
+    parts.append(table(["Ratio", "Today", "Limit", "Status"], rows))
+    parts.append(charts.line(
+        [(m["month"], m["available"] / 1e6, "Month %d: available $%sK (cash $%sK, liquid $%sK, overnight $%sK)" % (
+            m["month"], k(m["available"]), k(m["cash"]), k(m["liquid"]), k(m["overnight"]))) for m in L["stress"]],
+        lambda v: "$0" if not v else "$%.0fM" % v if abs(v) >= 10 else "$%.1fM" % v,
+        "Available liquidity through the stress ($ millions)", reference=0.0, reference_label="none left"))
+    parts.append(table(["Month", "Cash", "Liquid investments after haircut", "Overnight borrowing", "Available"],
+                       [[str(m["month"]), k(m["cash"]), k(m["liquid"]), k(m["overnight"]), k(m["available"])]
+                        for m in L["stress"]]))
+    parts.append("<p class='muted'>$000. %d months of share runoff (each product's stress runoff on top of its decay) "
+                 "while loans keep funding to plan. Available liquidity is cash above the minimum, liquid investments "
+                 "after haircut and contingent sources (%s), less borrowing already drawn; measured over the first "
+                 "twelve months.</p>" % (L["stress_months"], esc(", ".join(
+                     "%s $%sK" % (n, k(c)) for n, c in L["contingent"])) or "none"))
+    parts.append("<p><b>The plan's own funding need:</b> %s</p>" % (
+        "the base plan never borrows overnight." if L["funding_peak"] <= 0 else
+        "the base plan borrows up to $%sK overnight, in month %d, because loans grow faster than shares. That is a "
+        "funding decision the plan has to make, whatever the stress shows." % (k(L["funding_peak"]),
+                                                                              L["funding_peak_month"])))
+    parts.append("<h3>Contractual gap, today's positions only ($000)</h3>")
+    parts.append(table(["Month", "Net inflow", "Cumulative"], [[str(m), k(n), k(c)] for m, n, c in L["contractual"]]))
+    parts.append("</section>")
+    return "".join(parts)
 
-    # ---- Liquidity
-    parts.append("<h2>Liquidity</h2>")
-    parts.append("<p><strong>Regulatory tier:</strong> %s (total assets %s).</p>" % (
-        html.escape(measures.cfp_tier(total_assets)), _m(total_assets)))
-    parts.append(_table(["Ratio", "Today"], [["Loans to shares", _p(ratios["loans_to_shares"], 1)],
-                                             ["Cash and liquid investments to shares", _p(ratios["liquid_to_shares"], 1)],
-                                             ["Borrowings to assets", _p(ratios["borrowings_to_assets"], 1)]]))
-    parts.append("<h3>Stress: %d months of share runoff while loans fund to plan</h3>" % a.stress_months)
-    rows = [[str(m.month), _m(m.cash), _m(m.liquid_assets), _m(m.overnight), _m(m.available_liquidity)]
-            for m in stressed[:12]]
-    parts.append(_table(["Month", "Cash", "Liquid investments after haircut", "Overnight borrowing",
-                         "Available liquidity"], rows))
-    parts.append("<p>%s Available liquidity is cash above the minimum, liquid investments after haircut, "
-                 "and contingent sources (%s), less borrowing already drawn. The horizon is the first "
-                 "twelve months; beyond that the stress's frozen share balances describe a different plan, "
-                 "not a stress.</p>" % (
-                     "Available liquidity stays positive through the first twelve months."
-                     if survival is None else "<strong>Available liquidity runs out in month %d.</strong>" % survival,
-                     html.escape(", ".join("%s %s" % (n, _m(c)) for n, c in a.contingent))))
-    peak, when = measures.funding_gap(base_run)
-    parts.append("<p><strong>The plan's own funding need:</strong> %s</p>" % (
-        "the base plan never borrows overnight." if peak <= 0 else
-        "the base plan borrows up to %s overnight, in month %d, because loans grow faster than shares. "
-        "That is a funding decision the plan has to make, whatever the stress shows." % (_m(peak), when)))
-    parts.append("<h3>Contractual gap, today's positions only</h3>")
-    parts.append(_table(["Month", "Net inflow", "Cumulative"], [[str(k), _m(n), _m(c)] for k, n, c in gap]))
 
-    # ---- Portfolios
-    investment_products = {k for k, v in a.products.items() if v.liquid} | {
-        "invest_cds", "fhlb_stock", "cuso"}
-    securities = measures.security_analytics(positions, a, investment_products)
+def portfolios(r):
+    groups, securities, imported = r["security_groups"], r["securities"], r["imported"]
+    if not securities and imported is None:
+        return ""
+    parts = ["<section id='portfolios'><h2>Portfolios</h2>"]
     if securities:
-        parts.append("<h2>Portfolios</h2><h3>Investments by type</h3>")
-        groups = measures.by_product(securities)
-        totals = {"book": sum(g["book"] for g in groups), "market": sum(g["market"] for g in groups)}
-        rows = [[html.escape(g["product"].replace("_", " ")), str(g["count"]), _m(g["book"]), _m(g["market"]),
-                 _m(g["gain"]), _p(g["yield"]), "%.1f" % g["wal"], "%.2f" % g["duration"]] for g in groups]
-        rows.append(["<strong>Total</strong>", str(len(securities)), _m(totals["book"]), _m(totals["market"]),
-                     _m(totals["market"] - totals["book"]), "", "", ""])
-        parts.append(_table(["Type", "Holdings", "Book", "Market value", "Unrealized gain (loss)", "Book yield",
-                             "WAL (years)", "Effective duration"], rows))
-        parts.append("<p class='muted'>Market value is each holding's cash flows discounted on the base curve "
-                     "plus its product's discount spread; effective duration is from +/-100bp. FHLB stock and "
-                     "other stakes with no maturity count at book. Callables are called when their coupon beats "
-                     "the market by the product's threshold.</p>")
-        if len(securities) <= 250:
-            holdings = sorted(securities, key=lambda x: -x["book"])[:25]
-            parts.append("<h3>Largest holdings</h3>")
-            parts.append(_table(["Security", "Description", "Book", "Market value", "Gain (loss)", "Yield",
-                                 "Duration"],
-                                [[html.escape(h["id"]), html.escape(h["name"]), _m(h["book"]), _m(h["market"]),
-                                  _m(h["gain"]), _p(h["yield"]), "%.2f" % h["duration"]] for h in holdings],
-                                numeric_from=2))
+        parts.append("<h3>Investments by type ($000)</h3>")
+        book = sum(g["book"] for g in groups)
+        market = sum(g["market"] for g in groups)
+        rows = [[label(g["product"]), str(g["count"]), k(g["book"]), k(g["market"]), k(g["gain"]),
+                 pct(g["gain"] / g["book"] if g["book"] else 0.0, 1), pct(g["yield"]), "%.1f" % g["wal"],
+                 "%.2f" % g["duration"]] for g in groups]
+        rows.append(["Total", str(len(securities)), k(book), k(market), k(market - book),
+                     pct((market - book) / book if book else 0.0, 1), "", "", ""])
+        parts.append(table(["Type", "Holdings", "Book", "Market value", "Gain (loss)", "Gain / book", "Book yield",
+                            "WAL (years)", "Eff. duration"], rows, total_last=True))
+        parts.append("<p class='muted'>Market value is each holding's cash flows discounted on the base curve plus "
+                     "its product's discount spread; effective duration is from ±100bp. FHLB stock and other stakes "
+                     "with no maturity count at book. Callables are called when their coupon beats the market by "
+                     "the product's threshold. Every holding is in <code>results.xlsx</code>.</p>")
+        holdings = sorted(securities, key=lambda x: -x["book"])[:20]
+        parts.append("<h3>Largest holdings ($000)</h3>")
+        parts.append(table(["Security", "Description", "Book", "Market value", "Gain (loss)", "Yield", "Duration"],
+                           [[esc(h["id"]), esc(h["name"]), k(h["book"]), k(h["market"]), k(h["gain"]), pct(h["yield"]),
+                             "%.2f" % h["duration"]] for h in holdings], numeric_from=2))
     if imported is not None:
-        loans = imported.summaries["loans"]
-        parts.append("<h3>Loans</h3>")
-        parts.append(_table(["Product", "Loans", "Balance", "Weighted contract rate",
-                             "Weighted remaining term (months)", "60+ days delinquent", "Non-accrual (90+)"],
-                            [[html.escape(l["product"].replace("_", " ")), "{:,}".format(l["count"]),
-                              _m(l["balance"]), "%.2f%%" % l["rate"], "%.0f" % l["term"],
-                              _p(l["delinquent"] / l["balance"], 2), _m(l["nonaccrual"])] for l in loans]))
-        parts.append("<p class='muted'>Loans %d or more days past due are on non-accrual: they pool apart at a "
-                     "zero rate, so projected interest income excludes them.</p>" % importer.NONACCRUAL_DAYS)
-        parts.append("<h3>Certificate maturities</h3>")
-        parts.append(_table(["Maturing in", "Certificates", "Balance", "Weighted rate"],
-                            [[c["band"], "{:,}".format(c["count"]), _m(c["balance"]), "%.2f%%" % c["rate"]]
-                             for c in imported.summaries["certificates"]]))
-        parts.append("<p class='muted'>From the core files: %s. Rows that behave alike are pooled into %d "
-                     "positions for the projection; <code>positions_imported.csv</code> lists them.</p>" % (
-                         ", ".join("%s %s" % ("{:,}".format(n), k) for k, n in imported.rows.items()),
-                         len(positions)))
+        parts.append("<h3>Loans ($000)</h3>")
+        parts.append(table(["Product", "Loans", "Balance", "Contract rate", "Remaining term (months)",
+                            "60+ days delinquent", "Non-accrual (90+)"],
+                           [[label(x["product"]), "{:,}".format(x["count"]), k(x["balance"]), "%.2f%%" % x["rate"],
+                             "%.0f" % x["term"], pct(x["delinquent"] / x["balance"]) if x["balance"] else "",
+                             k(x["nonaccrual"])] for x in imported.summaries["loans"]]))
+        parts.append("<p class='muted'>Loans %d or more days past due are on non-accrual: they pool apart at a zero "
+                     "rate, so projected interest income excludes them.</p>" % importer.NONACCRUAL_DAYS)
+        parts.append("<h3>Certificate maturities ($000)</h3>")
+        parts.append(table(["Maturing in", "Certificates", "Balance", "Rate"],
+                           [[esc(x["band"]), "{:,}".format(x["count"]), k(x["balance"]), "%.2f%%" % x["rate"]]
+                            for x in imported.summaries["certificates"]]))
+        parts.append("<p class='muted'>From the core files: %s. Rows that behave alike are pooled into %d positions "
+                     "for the projection; <code>positions_imported.csv</code> lists them.</p>" % (
+                         esc(", ".join("%s %s" % ("{:,}".format(n), key) for key, n in imported.rows.items())),
+                         r["positions"]))
+    parts.append("</section>")
+    return "".join(parts)
 
-    # ---- Reconciliation
-    parts.append("<h2>Reconciliation</h2><p>The claim this report makes is that interest-rate risk, the "
-                 "plan and liquidity are one model. These checks test it on this run.</p>")
-    parts.append(_table(["Check", "Result", "Detail"], [
-        [html.escape(c.name), "<span class='%s'>%s</span>" % ("pass" if c.passed else "fail",
-                                                                "Pass" if c.passed else "FAIL"),
-         html.escape(c.detail)] for c in checks], numeric_from=99))
 
-    # ---- Assumptions
-    parts.append("<h2>Every assumption this run used</h2>")
-    parts.append(_table(["Tenor (months)", "Rate"], [[str(int(t)), "%.2f%%" % r] for t, r in
-                                                    zip(a.curve.tenors, a.curve.rates)]))
-    fields = ("cpr", "cpr_per_100bp", "runoff", "runoff_per_100bp", "beta", "rate_floor", "new_term",
-              "spread", "discount_spread", "growth", "charge_off", "haircut", "stress_runoff")
-    rows = []
-    for product in sorted(a.products):
-        spec = a.products[product]
-        rows.append([html.escape(product)] + [
-            (str(getattr(spec, f)) if f == "new_term" else "%.2f%%" % (100 * getattr(spec, f)))
-            for f in fields])
-    parts.append(_table(["Product"] + [f.replace("_", " ") for f in fields], rows))
-    parts.append("<p class='muted'>Generated %s by Keel. Every figure is computed from the two input files; "
-                 "none is typed. Runs on this machine and sends nothing anywhere.</p>" %
-                 datetime.date.today().isoformat())
-    parts.append("</main></body></html>")
+def reconciliation(r):
+    rows = [[esc(c.name), "<span class='%s'>%s</span>" % (
+        "pass" if c.passed else "fail", "&#10003; Pass" if c.passed else "&#10005; FAIL"), esc(c.detail)]
+        for c in r["checks"]]
+    return ("<section id='reconciliation'><h2>Reconciliation</h2><p>The claim this report makes is that "
+            "interest-rate risk, the plan and liquidity are one model%s. These checks test it on this run.</p>%s"
+            "</section>" % (" and that the detail ties to the general ledger" if r["imported"] is not None else "",
+                           table(["Check", "Result", "Detail"], rows, numeric_from=99)))
 
+
+def assumptions_section(r):
+    a = r["assumptions"]
+    parts = ["<section id='assumptions'><h2>Every assumption this run used</h2><div class='charts'>"]
+    parts.append("<div><h3>Base curve</h3>%s</div>" % table(
+        ["Tenor (months)", "Rate"], [[str(int(t)), "%.2f%%" % v] for t, v in zip(a.curve.tenors, a.curve.rates)]))
+    scen = []
+    for s in a.scenarios:
+        move = ("parallel %+gbp" % s.shock_bp if s.shape is None else "shaped: " + ", ".join(
+            "%gm %+gbp" % (t, v) for t, v in zip(s.shape.tenors, s.shape.rates)))
+        scen.append([esc(s.name), esc(move + (", over %d months" % s.ramp_months if s.ramp_months else ""))])
+    parts.append("<div><h3>Scenarios</h3>%s</div></div>" % table(["Scenario", "Move"], scen, numeric_from=99))
+    fields = ("cpr", "cpr_per_100bp", "runoff", "runoff_per_100bp", "beta", "rate_floor", "new_term", "spread",
+              "discount_spread", "growth", "charge_off", "haircut", "stress_runoff")
+    rows = [[label(product)] + [(str(getattr(a.products[product], f)) if f == "new_term"
+                                 else "%.2f%%" % (100 * getattr(a.products[product], f))) for f in fields]
+            for product in sorted(a.products)]
+    parts.append("<h3>Products</h3>")
+    parts.append(table(["Product"] + [f.replace("_", " ") for f in fields], rows))
+    parts.append("<p class='muted'>Fee income $%sK a year; operating expense $%sK a year growing %.1f%%; cash minimum "
+                 "$%sK; horizon %d months.</p>" % (k(a.fee_income), k(a.operating_expense), 100 * a.expense_growth,
+                                                   k(a.cash_minimum), a.horizon_months))
+    notes = [v for key, v in a.notes.items() if key != "about"]
+    parts += ["<p class='muted'>%s</p>" % esc(n) for n in notes]
+    parts.append("</section>")
+    return "".join(parts)
+
+
+# --------------------------------------------------------------- the page
+
+def page(r, downloads=()):
+    name, a = r["name"], r["assumptions"]
+    nav = [("summary", "Summary"), ("limits", "Limits"), ("rate-risk", "Rate risk"), ("plan", "Plan"),
+           ("liquidity", "Liquidity")]
+    if r["securities"] or r["imported"] is not None:
+        nav.append(("portfolios", "Portfolios"))
+    nav += [("reconciliation", "Reconciliation"), ("assumptions", "Assumptions")]
+    about = a.notes.get("about", "")
+    return "\n".join([
+        "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>",
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>",
+        "<title>%s: ALCO report, %s</title><style>%s</style></head><body>" % (esc(name), esc(a.as_of), STYLE),
+        "<header class='top'><div class='inner'><h1>%s</h1><p class='sub'>ALM, plan and liquidity from one "
+        "projection, as of %s. Tables in thousands of dollars.</p>%s<div class='downloads'>%s</div></div></header>" % (
+            esc(name), esc(a.as_of), "<p class='sub'>%s</p>" % esc(about) if about else "",
+            "".join("<a href='%s'>%s</a>" % (href, esc(text)) for href, text in downloads)),
+        "<nav aria-label='Sections'><div class='inner'>%s</div></nav><main>" % "".join(
+            "<a href='#%s'>%s</a>" % (i, esc(t)) for i, t in nav),
+        summary(r), rate_risk(r), plan(r), liquidity(r), portfolios(r), reconciliation(r), assumptions_section(r),
+        "</main><footer>Generated %s by Keel. Every figure is computed from the input files; none is typed. Keel "
+        "runs on this computer and sends nothing anywhere.</footer></body></html>" % datetime.date.today().isoformat(),
+    ])
+
+
+def build(positions, assumptions, out_dir, name="Credit union", imported=None):
+    r = results_module.compute(positions, assumptions, name, imported)
     os.makedirs(out_dir, exist_ok=True)
+    export.write_workbook(r, os.path.join(out_dir, "results.xlsx"))
+    products = [b["line"] for b in r["plan"]["balance_sheet"] if b["line"] not in ("cash", "overnight_borrowing")]
+    _write_months(os.path.join(out_dir, "projection_base.csv"), r["base_run"], products)
+    downloads = [("results.xlsx", "Every table, in Excel"), ("projection_base.csv", "Monthly projection (CSV)")]
+    if imported is not None:
+        downloads.append(("positions_imported.csv", "Pooled positions (CSV)"))
     with open(os.path.join(out_dir, "report.html"), "w", encoding="utf-8") as handle:
-        handle.write("\n".join(parts))
-    _write_months(os.path.join(out_dir, "projection_base.csv"), base_run, products)
-    return {"checks": checks, "test": test, "survival": survival, "nii_year1": base_y1}
-
-
-def _going(positions, a, scenario, stress=False):
-    return engine.going_concern(positions, a, scenario, stress=stress)
+        handle.write(page(r, downloads))
+    return {"checks": r["checks"], "test": r["test"], "survival": r["liquidity"]["survival"],
+            "nii_year1": r["nii_base"]["y1"], "limits": r["limits"], "results": r}
 
 
 def _write_months(path, months, products):

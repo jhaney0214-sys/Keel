@@ -54,10 +54,14 @@ def main(argv=None):
     name = args.name or assumptions.notes.get("about", "Credit union").split(".")[0]
     result = report.build(positions, assumptions, out, name, imported)
     failed = [c for c in result["checks"] if not c.passed]
-    print("report -> %s" % os.path.join(out, "report.html"))
+    print("report -> %s  (every table: results.xlsx)" % os.path.join(out, "report.html"))
     print("year-one NII %s; NEV ratio after +300bp %.2f%% (%s); reconciliation %d of %d passed" % (
         "{:,.0f}".format(result["nii_year1"]), 100 * result["test"]["post_shock_ratio"],
         result["test"]["ratio_rating"], len(result["checks"]) - len(failed), len(result["checks"])))
+    marks = {"within": "ok", "near": "NEAR", "breach": "BREACH"}
+    flagged = [x for x in result["limits"] if x.status != "within"]
+    print("limits: %d of %d within%s" % (len(result["limits"]) - len(flagged), len(result["limits"]),
+                                         "".join("; %s %s" % (marks[x.status], x.label) for x in flagged)))
     for c in failed:
         print("FAILED: %s (%s)" % (c.name, c.detail), file=sys.stderr)
     return 1 if failed else 0

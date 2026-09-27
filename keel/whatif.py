@@ -146,6 +146,7 @@ def key_measures(positions, a):
     stressed = engine.going_concern(positions, a, base, stress=True)
     peak, _ = measures.funding_gap(run)
     y1 = measures.income_statement(measures.year(run, 1))
+    limits = _limits(positions, a, run, {"+300": up_run, "-300": down_run}, {"+300": mgmt3}, mgmt0, stressed)
     return [
         ("Year-one NII, base", nii(run, 1), "money"),
         ("Year-two NII, base", nii(run, 2), "money"),
@@ -161,10 +162,51 @@ def key_measures(positions, a):
         ("Supervisory rating (ratio / change)", "%s / %s" % (test["ratio_rating"], test["sensitivity_rating"]), "text"),
         ("Lowest available liquidity in the stress year", min(m.available_liquidity for m in stressed[:12]), "money"),
         ("Peak overnight borrowing, base plan", peak, "money"),
-    ]
+    ] + [(x.label, x, "limit") for x in limits]
+
+
+def _limits(positions, a, run, runs, nevs, nev_base, stressed):
+    """Every policy limit, measured the way the full report measures it, from
+    the runs already made plus the few the limits add (+/-200bp, -300bp NEV)."""
+    from keel import results
+    by_name = {s.name: s for s in a.scenarios}
+    for name in ("+200", "-200"):
+        if name in by_name:
+            runs[name] = engine.going_concern(positions, a, by_name[name])
+    if "-300" in by_name:
+        nevs["-300"] = measures.nev(positions, a, by_name["-300"])
+    nii = lambda r: sum(m.nii for m in r[:12])  # noqa: E731
+    b1 = nii(run)
+    worst_nii = lambda keys: min(nii(runs[k]) / b1 - 1 for k in keys if k in runs)  # noqa: E731
+    ratios = measures.ratios(positions, a)
+    measured = {
+        "nii_decline_300": -100 * worst_nii(("+300", "-300")),
+        "nii_decline_200": -100 * worst_nii(("+200", "-200")),
+        "nev_decline_300": -100 * min(n.nev / nev_base.nev - 1 for n in nevs.values()),
+        "nev_ratio_min": 100 * min(n.ratio for n in nevs.values()),
+        "net_worth_min": 100 * min(m.equity / m.assets for m in run),
+        "liquid_to_shares_min": 100 * ratios["liquid_to_shares"],
+        "loans_to_shares_max": 100 * ratios["loans_to_shares"],
+        "borrowings_to_assets_max": 100 * ratios["borrowings_to_assets"],
+        "survival_months_min": results.survival_value(measures.survival(stressed)),
+    }
+    return results.evaluate_limits(measured, a)
+
+
+STATUS = {"within": ("good", "&#10003;", "Within"), "near": ("warning", "&#9650;", "Near"),
+          "breach": ("critical", "&#10005;", "Breach")}
+
+
+def _chip(status):
+    cls, icon, word = STATUS[status]
+    return "<span class='chip %s'><i aria-hidden='true'>%s</i>%s</span>" % (cls, icon, word)
 
 
 def _fmt(value, kind):
+    if kind == "limit":
+        shown = "12+ months" if value.value is None else "%.1f%s" % (
+            value.value, " months" if value.unit == "months" else "%")
+        return "%s %s" % (shown, _chip(value.status))
     if kind == "money":
         return "{:,.0f}".format(value / 1000.0)
     if kind == "pct":
@@ -173,26 +215,50 @@ def _fmt(value, kind):
 
 
 def _delta(before, after, kind):
+    if kind == "limit":
+        if before.value is None or after.value is None:
+            return "" if before.value == after.value else "changed"
+        text = "{:+,.1f}{}".format(after.value - before.value, " months" if after.unit == "months" else " pts")
+        return text if before.status == after.status else "%s, now %s" % (text, STATUS[after.status][2].lower())
     if kind == "money":
         return "{:+,.0f}".format((after - before) / 1000.0)
     if kind == "pct":
-        return "{:+,.2f} pts".format(100.0 * (after - before))
+        return "{:+,.2f} pts".format(100.0 * (after - before) + 0.0).replace("-0.00", "+0.00")
     return "" if before == after else "changed"
 
 
+def tables(before, after=None):
+    """The measures as two tables, the numbers then the policy limits; with
+    `after`, each row compares the base with the what-if."""
+    out = []
+    for heading, limits in (("Key measures ($000)", False), ("Policy limits", True)):
+        pairs = [(b, a) for b, a in zip(before, after or before) if (b[2] == "limit") == limits]
+        if after is None:
+            head = "<th>Measure</th><th class='num'>Base</th>"
+            rows = ["<tr><td>%s</td><td class='num'>%s</td></tr>" % (html.escape(b[0]), _fmt(b[1], b[2]))
+                    for b, _ in pairs]
+        else:
+            head = ("<th>Measure</th><th class='num'>Base</th><th class='num'>What-if</th>"
+                    "<th class='num'>Change</th>")
+            rows = ["<tr><td>%s</td><td class='num'>%s</td><td class='num'>%s</td><td class='num'>%s</td></tr>" % (
+                html.escape(b[0]), _fmt(b[1], b[2]), _fmt(a[1], a[2]), _delta(b[1], a[1], b[2])) for b, a in pairs]
+        out.append("<h2>%s</h2><div class='wrap'><table><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>" % (
+            heading, head, "".join(rows)))
+    return "".join(out)
+
+
 def comparison(title, notes, before, after):
-    rows = "\n".join(
-        "<tr><td>%s</td><td class='num'>%s</td><td class='num'>%s</td><td class='num'>%s</td></tr>" % (
-            html.escape(label), _fmt(b, kind), _fmt(a, kind), _delta(b, a, kind))
-        for (label, b, kind), (_, a, _) in zip(before, after))
     from keel.report import STYLE
+    moved = [a[1] for b, a in zip(before, after) if a[2] == "limit" and a[1].status != b[1].status]
+    verdict = ("No limit changes status." if not moved else
+               "Limits that change status: %s." % "; ".join(
+                   "%s, now %s" % (x.label, STATUS[x.status][2].lower()) for x in moved))
     return """<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width, initial-scale=1'><title>What-if: %s</title>
-<style>%s</style></head><body><main><h1>What-if: %s</h1>
-<p class='muted'>Dollars in thousands. The same model, measures and scenarios as the full report; only the
-changes below differ.</p><ul>%s</ul>
-<div class='wrap'><table><thead><tr><th>Measure</th><th class='num'>Base</th><th class='num'>What-if</th>
-<th class='num'>Change</th></tr></thead><tbody>%s</tbody></table></div>
+<style>%s</style></head><body><header class='top'><div class='inner'><h1>What-if: %s</h1>
+<p class='sub'>The same model, measures and scenarios as the full report; only the changes below differ.</p>
+</div></header><main><h2>What changed</h2><ul>%s</ul><p><b>%s</b></p>%s
 <p class='muted'>The what-if's own full report is <a href='report.html'>report.html</a> in this folder.</p>
 </main></body></html>""" % (html.escape(title), STYLE, html.escape(title),
-                            "".join("<li>%s</li>" % html.escape(n) for n in notes), rows)
+                            "".join("<li>%s</li>" % html.escape(n) for n in notes), html.escape(verdict),
+                            tables(before, after))

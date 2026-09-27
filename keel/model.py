@@ -140,6 +140,24 @@ PERCENT_FIELDS = ("cpr", "cpr_per_100bp", "cpr_floor", "cpr_cap", "runoff", "run
                   "haircut", "stress_runoff", "call_threshold")
 
 
+#: Policy limits: (key, kind, default, label). "max" limits cap a measure,
+#: "min" limits floor it; values in percent except months. Defaults are
+#: typical of credit-union ALM policies and are reported as defaults, never
+#: as the board's own, until the settings say otherwise.
+LIMITS = (
+    ("nii_decline_300", "max", 15.0, "Year-one NII decline, worst of +/-300bp"),
+    ("nii_decline_200", "max", 10.0, "Year-one NII decline, worst of +/-200bp"),
+    ("nev_decline_300", "max", 40.0, "NEV decline, own assumptions, worst of +/-300bp"),
+    ("nev_ratio_min", "min", 6.0, "NEV ratio, own assumptions, after the worst +/-300bp"),
+    ("net_worth_min", "min", 7.0, "Net worth ratio, lowest month of the base plan"),
+    ("liquid_to_shares_min", "min", 15.0, "Cash and liquid investments to shares"),
+    ("loans_to_shares_max", "max", 95.0, "Loans to shares"),
+    ("borrowings_to_assets_max", "max", 25.0, "Borrowings to assets"),
+    ("survival_months_min", "min", 6.0, "Months of liquidity under the stress"),
+)
+WARNING_BAND = 10.0   # percent of a limit counted as "near" it
+
+
 @dataclasses.dataclass
 class Assumptions:
     as_of: str
@@ -159,6 +177,8 @@ class Assumptions:
     contingent: list = dataclasses.field(default_factory=list)   # [(name, capacity)]
     scenarios: list = dataclasses.field(default_factory=list)
     notes: dict = dataclasses.field(default_factory=dict)
+    limits: dict = dataclasses.field(default_factory=dict)       # key -> value, as set
+    warning_band: float = WARNING_BAND
 
 
 def read_assumptions(path):
@@ -197,7 +217,17 @@ def parse_assumptions(raw):
         overnight_spread=_decimal(raw.get("overnight_spread", 0)),
         stress_months=int(liquidity.get("stress_months", 3)),
         contingent=[(c["name"], float(c["capacity"])) for c in liquidity.get("contingent", [])],
-        scenarios=scenarios, notes=raw.get("notes", {}))
+        scenarios=scenarios, notes=raw.get("notes", {}),
+        limits=_limits(raw.get("limits", {})),
+        warning_band=float(raw.get("limits", {}).get("warning_band", WARNING_BAND)))
+
+
+def _limits(raw):
+    known = {k for k, _, _, _ in LIMITS} | {"warning_band"}
+    unknown = [k for k in raw if k not in known]
+    if unknown:
+        raise InputError("assumptions: unknown limit %r (known: %s)" % (unknown[0], ", ".join(sorted(known))))
+    return {k: float(v) for k, v in raw.items() if k != "warning_band" and v is not None}
 
 
 def check(positions, assumptions):

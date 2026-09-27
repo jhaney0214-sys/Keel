@@ -113,6 +113,9 @@ PROFILES = {
         "fee_income": 0.0110, "opex": 0.036,
         "note": "Close to the system's own mix, with some commercial real estate.",
         "formats": {"settings": "xlsx", "data": "csv"},
+        "limits": {"nii_decline_300": 20.0, "nii_decline_200": 12.0, "nev_decline_300": 50.0, "nev_ratio_min": 7.0,
+                   "net_worth_min": 8.0, "liquid_to_shares_min": 15.0, "loans_to_shares_max": 100.0,
+                   "borrowings_to_assets_max": 20.0, "survival_months_min": 6.0},
     },
     "large-cu": {
         "label": "Harbor State Credit Union (synthetic)",
@@ -125,6 +128,9 @@ PROFILES = {
         "fee_income": 0.0090, "opex": 0.029,
         "note": "Mortgage-heavy and certificate-funded, with FHLB borrowing: the shape the NEV test bites.",
         "formats": {"settings": "xlsx", "data": "xlsx"},
+        "limits": {"nii_decline_300": 15.0, "nii_decline_200": 10.0, "nev_decline_300": 45.0, "nev_ratio_min": 6.0,
+                   "net_worth_min": 7.5, "liquid_to_shares_min": 18.0, "loans_to_shares_max": 100.0,
+                   "borrowings_to_assets_max": 15.0, "survival_months_min": 6.0},
     },
 }
 
@@ -426,6 +432,7 @@ class Generator(object):
                                 {"name": "flattener", "shape": {"1": 200, "24": 100, "120": 0}},
                                 {"name": "steepener", "shape": {"1": 0, "24": 50, "120": 200}},
                                 {"name": "short end +200", "shape": {"1": 200, "12": 200, "36": 0}}],
+            "limits": p.get("limits", {}),
             "liquidity": {"stress_months": 3, "contingent": [
                 {"name": "FHLB unused borrowing capacity", "capacity": round(assets * 0.12, -3)},
                 {"name": "Central Liquidity Facility (through a corporate credit union)",

@@ -21,8 +21,17 @@ every position and reads all three from it:
   the certificate maturity ladder.
 - **Reconciliation:** checks run on every report that the three really are
   one model, and that every detail file ties to the general ledger.
+- **Policy limits:** the board's limits on NII, NEV, net worth, liquidity
+  and funding, each marked within, near or breach (with an icon and a word,
+  never colour alone). Limits not set are Keel's defaults, and say so.
 - **What-ifs:** change an assumption or the balance sheet and see every
-  measure move, side by side with the base.
+  measure and limit move, side by side with the base.
+
+The report opens with the findings in plain words, then the limits, then the
+detail, with a chart above each table that holds its exact numbers. It prints
+as a board packet (one section a page), follows the system's light or dark
+mode, and has an Excel twin, `results.xlsx`, with every table in raw dollars
+so formulas built on it add up to the cent.
 
 **It runs on the credit union's own machine and sends nothing anywhere.**
 Standard-library Python 3.8+, no dependencies, no network calls. Every
@@ -98,6 +107,27 @@ run with the file and row: an unmapped product code, a term loan without a
 term, a balloon shorter than its term, a duplicate id, a product with no
 assumptions, a what-if path that does not exist.
 
+## Policy limits
+
+The `Limits` sheet of the settings workbook (or `"limits"` in
+`assumptions.json`) holds the board's limits; a blank uses Keel's default.
+
+| Key | Limit | Default |
+|---|---|---|
+| `nii_decline_300` | Year-one NII decline, worst of ±300bp, at most | 15% |
+| `nii_decline_200` | Year-one NII decline, worst of ±200bp, at most | 10% |
+| `nev_decline_300` | NEV decline on own assumptions, worst of ±300bp, at most | 40% |
+| `nev_ratio_min` | NEV ratio on own assumptions after the worst ±300bp, at least | 6% |
+| `net_worth_min` | Net worth ratio, lowest month of the base plan, at least | 7% |
+| `liquid_to_shares_min` | Cash and liquid investments to shares, at least | 15% |
+| `loans_to_shares_max` | Loans to shares, at most | 95% |
+| `borrowings_to_assets_max` | Borrowings to assets, at most | 25% |
+| `survival_months_min` | Months liquidity lasts under the stress, at least | 6 |
+| `warning_band` | How close counts as near, percent of the limit | 10% |
+
+An unknown key stops the run, so a misspelled limit is never silently the
+default.
+
 ## What-ifs
 
 A what-if is a small JSON file: `assumptions` changed by dotted path (in
@@ -110,7 +140,8 @@ that names its `draws_on` source uses up that much contingent capacity. See
 `python -m keel serve <folder>` puts the same thing in the browser: the
 levers an ALCO asks about (planned growth, share betas and decay, prepayment
 speeds, a new borrowing, a sale), prefilled with today's assumptions, with
-base and what-if side by side and the JSON to keep. It listens on 127.0.0.1
+base and what-if side by side (every measure and every limit, with the
+limits that change status called out) and the JSON to keep. It listens on 127.0.0.1
 only, so nothing outside the computer can reach it.
 
 ## The NCUA NEV Supervisory Test
@@ -126,7 +157,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 57 tests
+python -m unittest discover -s tests      # 70 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,
