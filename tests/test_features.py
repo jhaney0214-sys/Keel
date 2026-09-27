@@ -253,3 +253,49 @@ class WhatIf(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Browser(unittest.TestCase):
+    """The what-if page builds the same what-if a JSON file would."""
+
+    def setUp(self):
+        from keel import serve
+        self.serve = serve
+        self.a = assumptions({"money_market": model.Product("money_market", beta=0.55, runoff=0.22),
+                              "bond": model.Product("bond", liquid=True)},
+                             contingent=[("FHLB", 1e6)])
+
+    def test_only_changed_values_become_changes(self):
+        spec = self.serve.form_to_spec({"p.money_market.beta": "55.00", "p.money_market.runoff": "30"}, self.a)
+        self.assertEqual(spec["assumptions"], {"products.money_market.runoff": 30.0})
+        self.assertEqual(spec["actions"], [])
+
+    def test_a_borrowing_and_a_sale_become_actions(self):
+        spec = self.serve.form_to_spec({"borrow_amount": "20000000", "borrow_rate": "4.1", "borrow_term": "24",
+                                        "borrow_source": "FHLB", "sell_product": "bond",
+                                        "sell_percent": "25"}, self.a)
+        add, scale = spec["actions"]
+        self.assertEqual((add["add"]["balance"], add["add"]["draws_on"], add["add"]["term_months"]),
+                         (20000000.0, "FHLB", 24))
+        self.assertEqual(scale, {"scale": {"product": "bond", "factor": 0.75}})
+
+    def test_the_server_answers_on_this_computer_only(self):
+        import http.server
+        import threading
+        import urllib.parse
+        import urllib.request
+        folder = os.path.join(ROOT, "examples", "sample-cu")
+        server = self.serve.Server(folder)
+        httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.serve.handler_for(server))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            base = "http://127.0.0.1:%d" % httpd.server_address[1]
+            page = urllib.request.urlopen(base + "/").read().decode("utf-8")
+            self.assertIn("p.money_market.beta", page)
+            body = urllib.parse.urlencode({"name": "test", "p.money_market.beta": "80"}).encode()
+            out = urllib.request.urlopen(base + "/whatif", body).read().decode("utf-8")
+            self.assertIn("products.money_market.beta set to 80.0", out)
+            self.assertEqual(httpd.server_address[0], "127.0.0.1")
+        finally:
+            httpd.shutdown()
+            httpd.server_close()

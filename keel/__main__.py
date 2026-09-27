@@ -19,9 +19,16 @@ def main(argv=None):
     what.add_argument("folder")
     what.add_argument("spec", help="a what-if JSON file")
     what.add_argument("--out", default=None, help="default: <folder>/report/whatif-<file name>")
+    srv = sub.add_parser("serve", help="a what-if page in the browser, on this computer only")
+    srv.add_argument("folder")
+    srv.add_argument("--port", type=int, default=8750)
     args = parser.parse_args(argv)
     if args.command == "whatif":
         return run_whatif(args)
+    if args.command == "serve":
+        from keel import serve
+        serve.serve(args.folder, args.port)
+        return 0
 
     out = args.out or os.path.join(args.folder, "report")
     imported = None

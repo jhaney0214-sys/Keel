@@ -35,6 +35,7 @@ is written for the model validator.
 python tools/make_samples.py                 # three synthetic credit unions, in about two seconds
 python -m keel run examples/mid-cu           # -> examples/mid-cu/report/report.html
 python -m keel whatif examples/mid-cu examples/whatifs/fhlb-for-auto-growth.json
+python -m keel serve examples/mid-cu         # a what-if page at http://127.0.0.1:8750/
 ```
 
 | Sample | Size | Shape | Supervisory test |
@@ -92,6 +93,12 @@ a sale is priced at market and realizes its gain or loss, and a borrowing
 that names its `draws_on` source uses up that much contingent capacity. See
 `examples/whatifs/` for three.
 
+`python -m keel serve <folder>` puts the same thing in the browser: the
+levers an ALCO asks about (planned growth, share betas and decay, prepayment
+speeds, a new borrowing, a sale), prefilled with today's assumptions, with
+base and what-if side by side and the JSON to keep. It listens on 127.0.0.1
+only, so nothing outside the computer can reach it.
+
 ## The NCUA NEV Supervisory Test
 
 Run as NCUA describes it. Non-maturity shares are priced at the standardized
@@ -105,7 +112,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 42 tests
+python -m unittest discover -s tests      # 46 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,
