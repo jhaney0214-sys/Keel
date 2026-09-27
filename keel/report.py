@@ -56,13 +56,19 @@ def build(positions, assumptions, out_dir, name="Credit union", imported=None):
     a = assumptions
     runs = {s.name: _going(positions, a, s) for s in a.scenarios}
     base_run = runs["base"]
-    nevs = {s.name: measures.nev(positions, a, s) for s in a.scenarios if s.parallel}
+    nevs = {s.name: measures.nev(positions, a, s) for s in a.scenarios if s.instantaneous}
     supervisory = {name: measures.nev(positions, a, s, supervisory=True)
                    for s in a.scenarios for name in [s.name] if s.parallel and s.shock_bp in (0, 300)}
     test = measures.ncua_test(supervisory["base"], supervisory["+300"])
     stressed = _going(positions, a, a.scenarios[0], stress=True)
     survival = measures.survival(stressed)
     checks = measures.reconcile(positions, a, runs)
+    if imported is not None:
+        for tie in imported.ties:
+            checks.append(measures.Check("Detail ties to the general ledger: %s" % tie.line, tie.ties,
+                                         "detail $%s, ledger $%s, difference $%.2f" % (
+                                             "{:,.2f}".format(tie.detail), "{:,.2f}".format(tie.ledger),
+                                             tie.difference)))
     gap = measures.contractual_gap(positions, a, a.scenarios[0], 12)
     ratios = measures.ratios(positions, a)
     total_assets = sum(p.balance for p in positions if p.side == "asset")
@@ -124,6 +130,17 @@ def build(positions, assumptions, out_dir, name="Credit union", imported=None):
             _p(test["post_shock_ratio"]), test["ratio_rating"], _p(-test["sensitivity_value_decline"], 1),
             test["sensitivity_rating"], _p(test["sensitivity_ratio_decline"], 1)))
 
+    gap_rows, insensitive = measures.repricing_gap(positions, a)
+    parts.append("<h3>Repricing gap</h3>")
+    parts.append(_table(["Band", "Assets repricing", "Liabilities repricing", "Gap", "Cumulative gap",
+                         "Cumulative gap / assets"],
+                        [[g["band"], _m(g["assets"]), _m(g["liabilities"]), _m(g["gap"]), _m(g["cumulative"]),
+                          _p(g["cumulative_to_assets"], 1)] for g in gap_rows]))
+    parts.append("<p class='muted'>Base scenario. Variable-rate positions count in full at their next reset; "
+                 "everything else by its principal cash flows, including prepayment and share decay. Not "
+                 "rate-sensitive: assets %s, liabilities %s.</p>" % (_m(insensitive["asset"]),
+                                                                      _m(insensitive["liability"])))
+
     # ---- FP&A
     parts.append("<h2>The plan</h2><h3>Income statement, base scenario</h3>")
     years = a.horizon_months // 12
@@ -182,6 +199,49 @@ def build(positions, assumptions, out_dir, name="Credit union", imported=None):
         "That is a funding decision the plan has to make, whatever the stress shows." % (_m(peak), when)))
     parts.append("<h3>Contractual gap, today's positions only</h3>")
     parts.append(_table(["Month", "Net inflow", "Cumulative"], [[str(k), _m(n), _m(c)] for k, n, c in gap]))
+
+    # ---- Portfolios
+    investment_products = {k for k, v in a.products.items() if v.liquid} | {
+        "invest_cds", "fhlb_stock", "cuso"}
+    securities = measures.security_analytics(positions, a, investment_products)
+    if securities:
+        parts.append("<h2>Portfolios</h2><h3>Investments by type</h3>")
+        groups = measures.by_product(securities)
+        totals = {"book": sum(g["book"] for g in groups), "market": sum(g["market"] for g in groups)}
+        rows = [[html.escape(g["product"].replace("_", " ")), str(g["count"]), _m(g["book"]), _m(g["market"]),
+                 _m(g["gain"]), _p(g["yield"]), "%.1f" % g["wal"], "%.2f" % g["duration"]] for g in groups]
+        rows.append(["<strong>Total</strong>", str(len(securities)), _m(totals["book"]), _m(totals["market"]),
+                     _m(totals["market"] - totals["book"]), "", "", ""])
+        parts.append(_table(["Type", "Holdings", "Book", "Market value", "Unrealized gain (loss)", "Book yield",
+                             "WAL (years)", "Effective duration"], rows))
+        parts.append("<p class='muted'>Market value is each holding's cash flows discounted on the base curve "
+                     "plus its product's discount spread; effective duration is from +/-100bp. FHLB stock and "
+                     "other stakes with no maturity count at book. Callables are called when their coupon beats "
+                     "the market by the product's threshold.</p>")
+        if len(securities) <= 250:
+            holdings = sorted(securities, key=lambda x: -x["book"])[:25]
+            parts.append("<h3>Largest holdings</h3>")
+            parts.append(_table(["Security", "Description", "Book", "Market value", "Gain (loss)", "Yield",
+                                 "Duration"],
+                                [[html.escape(h["id"]), html.escape(h["name"]), _m(h["book"]), _m(h["market"]),
+                                  _m(h["gain"]), _p(h["yield"]), "%.2f" % h["duration"]] for h in holdings],
+                                numeric_from=2))
+    if imported is not None:
+        loans = imported.summaries["loans"]
+        parts.append("<h3>Loans</h3>")
+        parts.append(_table(["Product", "Loans", "Balance", "Weighted rate", "Weighted remaining term (months)",
+                             "60+ days delinquent"],
+                            [[html.escape(l["product"].replace("_", " ")), "{:,}".format(l["count"]),
+                              _m(l["balance"]), "%.2f%%" % l["rate"], "%.0f" % l["term"],
+                              _p(l["delinquent"] / l["balance"], 2)] for l in loans]))
+        parts.append("<h3>Certificate maturities</h3>")
+        parts.append(_table(["Maturing in", "Certificates", "Balance", "Weighted rate"],
+                            [[c["band"], "{:,}".format(c["count"]), _m(c["balance"]), "%.2f%%" % c["rate"]]
+                             for c in imported.summaries["certificates"]]))
+        parts.append("<p class='muted'>From the core files: %s. Rows that behave alike are pooled into %d "
+                     "positions for the projection; <code>positions_imported.csv</code> lists them.</p>" % (
+                         ", ".join("%s %s" % ("{:,}".format(n), k) for k, n in imported.rows.items()),
+                         len(positions)))
 
     # ---- Reconciliation
     parts.append("<h2>Reconciliation</h2><p>The claim this report makes is that interest-rate risk, the "

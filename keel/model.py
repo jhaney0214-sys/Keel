@@ -163,7 +163,12 @@ class Assumptions:
 
 def read_assumptions(path):
     with open(path, encoding="utf-8") as handle:
-        raw = json.load(handle)
+        return parse_assumptions(json.load(handle))
+
+
+def parse_assumptions(raw):
+    """Assumptions from the parsed JSON, so a what-if can change the raw
+    values (in the same units as the file) before they are read."""
     products = {}
     for name, spec in raw["products"].items():
         values = {}
@@ -176,7 +181,8 @@ def read_assumptions(path):
     floor = raw.get("rate_floor", 0.0)
     scenarios = standard_scenarios(floor)
     for spec in raw.get("extra_scenarios", []):
-        scenarios.append(Scenario(spec["name"], spec["shock_bp"], spec.get("ramp_months", 0), floor))
+        scenarios.append(Scenario(spec["name"], spec.get("shock_bp", 0), spec.get("ramp_months", 0), floor,
+                                  spec.get("shape")))
     liquidity = raw.get("liquidity", {})
     return Assumptions(
         as_of=raw["as_of"], curve=Curve(raw["curve"]), indexes=indexes, products=products,

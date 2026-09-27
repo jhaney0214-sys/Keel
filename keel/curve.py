@@ -33,29 +33,42 @@ class Curve(object):
 
 
 class Scenario(object):
-    """How far the base curve has moved, in basis points, in each month."""
+    """How far the base curve has moved, in basis points, in each month.
 
-    def __init__(self, name, shock_bp=0.0, ramp_months=0, floor=0.0):
+    Parallel by default. With `shape` ({tenor in months: bp}), the move
+    differs along the curve, interpolated between the given tenors and held
+    flat beyond them: {"1": 200, "120": 0} is a flattener that lifts the short
+    end 200bp and leaves ten years unchanged. `shock_bp` is then ignored."""
+
+    def __init__(self, name, shock_bp=0.0, ramp_months=0, floor=0.0, shape=None):
         self.name = name
         self.shock_bp = float(shock_bp)
         self.ramp_months = int(ramp_months)
         self.floor = floor
+        self.shape = Curve(shape) if shape else None
+
+    @property
+    def instantaneous(self):
+        """Applied on the analysis date and held: the kind NEV is measured under."""
+        return self.ramp_months == 0
 
     @property
     def parallel(self):
-        """Instantaneous and sustained: the kind NEV is measured under."""
-        return self.ramp_months == 0
+        return self.instantaneous and self.shape is None
 
-    def shift_bp(self, month):
+    def shift_bp(self, month, tenor=None):
+        """The move at `tenor` (default: the ten-year point for a shaped
+        scenario) in `month`."""
+        full = self.shape.rate(120 if tenor is None else tenor) if self.shape else self.shock_bp
         if self.ramp_months <= 0:
-            return self.shock_bp
-        return self.shock_bp * min(1.0, float(month) / self.ramp_months)
+            return full
+        return full * min(1.0, float(month) / self.ramp_months)
 
     def rate(self, curve, month, tenor):
         """The scenario rate, in percent, at `tenor` as seen in `month`
         (month 0 is the analysis date). Floored, so a down shock cannot push
         a rate below `floor`."""
-        value = curve.rate(tenor) + self.shift_bp(month) / 100.0
+        value = curve.rate(tenor) + self.shift_bp(month, tenor) / 100.0
         return value if self.floor is None else max(self.floor, value)
 
     def __repr__(self):

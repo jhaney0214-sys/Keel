@@ -1,0 +1,5 @@
+{
+  "name": "Money market and regular share betas higher than assumed",
+  "assumptions": {"products.money_market.beta": 80, "products.regular_shares.beta": 30,
+                  "products.money_market.runoff_per_100bp": 6}
+}

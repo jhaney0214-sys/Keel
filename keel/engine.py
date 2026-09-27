@@ -85,7 +85,10 @@ class Stepper(object):
         product = self.a.products[p.product]
         interest = balance * p.rate / 12.0
         scheduled = prepaid = decayed = 0.0
-        shift = self.s.shift_bp(month) / 100.0
+        # Prepayment follows the long end (mortgage rates track ten years);
+        # share decay follows the short end, where members compare rates.
+        shift = self.s.shift_bp(month, 120) / 100.0
+        short_shift = self.s.shift_bp(month, self.a.short_tenor) / 100.0
         if p.amortization == "level":
             n, r = p.term_months, p.rate / 12.0
             if n <= 1:
@@ -119,7 +122,7 @@ class Stepper(object):
                 if p.rate - market > product.call_threshold:
                     scheduled = balance
         elif p.amortization == "nonmaturity":
-            decayed = balance * monthly(product.runoff + product.runoff_per_100bp * shift)
+            decayed = balance * monthly(product.runoff + product.runoff_per_100bp * short_shift)
         remaining = balance - scheduled - prepaid - decayed
         chargeoff = remaining * product.charge_off / 12.0 if p.side == "asset" else 0.0
         p.balance = remaining - chargeoff

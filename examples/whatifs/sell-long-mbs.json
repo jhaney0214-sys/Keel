@@ -1,0 +1,4 @@
+{
+  "name": "Sell half the agency MBS at book and hold the cash",
+  "actions": [{"scale": {"product": "agency_mbs", "factor": 0.5}}]
+}

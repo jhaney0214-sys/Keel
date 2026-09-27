@@ -406,7 +406,10 @@ class Generator(object):
             "cash_minimum": round(assets * 0.025, -3), "overnight_spread": 0.25,
             "products": BEHAVIOUR,
             "extra_scenarios": [{"name": "ramp +200", "shock_bp": 200, "ramp_months": 12},
-                                {"name": "ramp -200", "shock_bp": -200, "ramp_months": 12}],
+                                {"name": "ramp -200", "shock_bp": -200, "ramp_months": 12},
+                                {"name": "flattener", "shape": {"1": 200, "24": 100, "120": 0}},
+                                {"name": "steepener", "shape": {"1": 0, "24": 50, "120": 200}},
+                                {"name": "short end +200", "shape": {"1": 200, "12": 200, "36": 0}}],
             "liquidity": {"stress_months": 3, "contingent": [
                 {"name": "FHLB unused borrowing capacity", "capacity": round(assets * 0.12, -3)},
                 {"name": "Central Liquidity Facility (through a corporate credit union)",

@@ -72,7 +72,8 @@ def is_share(position):
 def nev(positions, assumptions, scenario, supervisory=False):
     """Present value of every position's runoff cash flows, discounted at the
     scenario curve (as shocked on the analysis date) plus the product's
-    discount spread. Cash and non-earning positions count at book.
+    discount spread. Cash, non-earning positions and positions with no maturity
+    count at book.
 
     With `supervisory`, non-maturity shares take NCUA's standardized prices
     instead of their modelled value; only the base and +300bp scenarios have
@@ -86,7 +87,10 @@ def nev(positions, assumptions, scenario, supervisory=False):
     for p in positions:
         if supervisory and is_share(p):
             value = p.balance * SUPERVISORY_SHARE_PRICE[scenario.shock_bp]
-        elif p.id in flows:
+        elif p.id in flows and p.amortization != "none":
+            # A position with no maturity at all (FHLB stock, a CUSO stake) is
+            # redeemed at par, so it counts at book, not as a perpetuity. Found
+            # when FHLB stock paying 7% valued at 150% of book.
             spread = assumptions.products[p.product].discount_spread
             value = 0.0
             for k, f in enumerate(flows[p.id], 1):
@@ -265,3 +269,100 @@ def reconcile(positions, assumptions, runs):
 
 def _m(value):
     return "{:,.0f}".format(value)
+
+
+# --------------------------------------------------------------- portfolio views
+
+GAP_BUCKETS = ((3, "0-3 months"), (12, "3-12 months"), (36, "1-3 years"), (60, "3-5 years"),
+               (120, "5-10 years"), (10 ** 6, "over 10 years"))
+
+
+def _bucket(month):
+    for bound, label in GAP_BUCKETS:
+        if month <= bound:
+            return label
+    return GAP_BUCKETS[-1][1]
+
+
+def repricing_gap(positions, assumptions):
+    """The classic gap table: how much of each side reprices or pays down in
+    each time band, in the base scenario. A variable-rate position counts in
+    full at its next reset; everything else by its principal cash flows
+    (maturities, amortization, prepayment, decay). Cash counts in the first
+    band; positions with neither a rate nor a term count as not sensitive."""
+    labels = [label for _, label in GAP_BUCKETS]
+    assets = dict.fromkeys(labels, 0.0)
+    liabilities = dict.fromkeys(labels, 0.0)
+    insensitive = {"asset": 0.0, "liability": 0.0}
+    flows = engine.runoff(positions, assumptions, assumptions.scenarios[0])
+    for p in positions:
+        side = assets if p.side == "asset" else liabilities
+        if p.product == CASH:
+            side[labels[0]] += p.balance
+        elif p.rate_type == "variable":
+            side[_bucket(p.next_reset_months or p.reset_months or 1)] += p.balance
+        elif p.id in flows:
+            for k, f in enumerate(flows[p.id], 1):
+                side[_bucket(k)] += f.principal + f.chargeoff
+        else:
+            insensitive[p.side] += p.balance
+    total_assets = sum(p.balance for p in positions if p.side == "asset")
+    rows, running = [], 0.0
+    for label in labels:
+        gap = assets[label] - liabilities[label]
+        running += gap
+        rows.append({"band": label, "assets": assets[label], "liabilities": liabilities[label],
+                     "gap": gap, "cumulative": running,
+                     "cumulative_to_assets": running / total_assets if total_assets else 0.0})
+    return rows, insensitive
+
+
+def _single_pv(position, assumptions, scenario):
+    return nev([position], assumptions, scenario).pv_assets
+
+
+def security_analytics(positions, assumptions, products):
+    """Market value (base-scenario PV), unrealized gain or loss against book,
+    book yield, weighted average life and effective duration (from +/-100bp)
+    for every position in `products`."""
+    from keel.curve import Scenario
+    base, up, down = assumptions.scenarios[0], Scenario("+100", 100, floor=assumptions.rate_floor), \
+        Scenario("-100", -100, floor=assumptions.rate_floor)
+    out = []
+    for p in positions:
+        if p.product not in products or p.balance <= 0:
+            continue
+        value = _single_pv(p, assumptions, base)
+        if p.amortization != "none":
+            flows = engine.runoff([p], assumptions, base).get(p.id, [])
+            paid = sum(f.principal for f in flows)
+            wal = sum(k * f.principal for k, f in enumerate(flows, 1)) / paid / 12.0 if paid else 0.0
+            dur = (_single_pv(p, assumptions, down) - _single_pv(p, assumptions, up)) / (2 * value * 0.01) \
+                if value else 0.0
+        else:
+            wal = dur = 0.0
+        out.append({"id": p.id, "name": p.name, "product": p.product, "book": p.balance,
+                    "market": value, "gain": value - p.balance, "yield": p.rate, "wal": wal,
+                    "duration": dur})
+    return out
+
+
+def by_product(rows):
+    """Security rows summed by product, with balance-weighted yield, WAL and duration."""
+    groups = {}
+    for r in rows:
+        g = groups.setdefault(r["product"], {"product": r["product"], "count": 0, "book": 0.0,
+                                             "market": 0.0, "yield_x": 0.0, "wal_x": 0.0, "dur_x": 0.0})
+        g["count"] += 1
+        g["book"] += r["book"]
+        g["market"] += r["market"]
+        g["yield_x"] += r["book"] * r["yield"]
+        g["wal_x"] += r["market"] * r["wal"]
+        g["dur_x"] += r["market"] * r["duration"]
+    out = []
+    for g in sorted(groups.values(), key=lambda g: -g["book"]):
+        out.append({"product": g["product"], "count": g["count"], "book": g["book"], "market": g["market"],
+                    "gain": g["market"] - g["book"], "yield": g["yield_x"] / g["book"] if g["book"] else 0.0,
+                    "wal": g["wal_x"] / g["market"] if g["market"] else 0.0,
+                    "duration": g["dur_x"] / g["market"] if g["market"] else 0.0})
+    return out

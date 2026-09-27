@@ -1,0 +1,23 @@
+{
+  "name": "Grow auto lending 10% a year, funded by a $50M FHLB advance",
+  "assumptions": {
+    "products.new_auto.growth": 10,
+    "products.used_auto.growth": 10
+  },
+  "actions": [
+    {
+      "add": {
+        "id": "fhlb_new",
+        "name": "New 3-year FHLB advance",
+        "product": "borrowings",
+        "side": "liability",
+        "balance": 50000000,
+        "rate": 4.1,
+        "rate_type": "fixed",
+        "term_months": 36,
+        "amortization": "bullet",
+        "draws_on": "FHLB unused borrowing capacity"
+      }
+    }
+  ]
+}
