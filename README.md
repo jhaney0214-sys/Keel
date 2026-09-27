@@ -461,7 +461,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 198 tests
+python -m unittest discover -s tests      # 202 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,
@@ -470,6 +470,16 @@ NCUA's standardized share prices, SL 22-01's bands and 741.12's tiers. Others
 pin behaviour that was once wrong: FHLB stock valued as a perpetuity, an
 advance that raised stress liquidity, a sale at book that hid its loss. One
 breaks the balance sheet on purpose to show the reconciliation catches it.
+
+## Speed
+
+A report runs the book through every scenario, and the key-assumption
+tests through a dozen variants. Those passes are independent, so Keel runs
+them side by side across the computer's cores (standard library only; the
+answers are identical either way, and a test holds them so). The full
+mid-cu report takes about 8 seconds, `--quick` about 6, and the $2.4 billion
+large-cu about 15. Set `KEEL_WORKERS=1` to run everything in one process,
+or `KEEL_WORKERS=n` for n workers.
 
 ## Status
 

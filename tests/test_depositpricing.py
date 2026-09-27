@@ -96,6 +96,15 @@ class Special(unittest.TestCase):
         self.assertLess(grid[0]["cells"][0]["marginal"], grid[-1]["cells"][0]["marginal"])   # dearer at a higher rate
         self.assertGreater(grid[0]["cells"][0]["marginal"], grid[0]["cells"][-1]["marginal"])  # cheaper with more new
 
+    def test_when_renewals_take_the_whole_volume(self):
+        spec = dict(SPEC, volume=4e6)                   # under the $5M of expected renewals
+        s = depositpricing.special(self.positions, self.a, spec)
+        self.assertEqual(s["new_money"], 0.0)
+        self.assertIsNone(s["marginal"])
+        page = depositpricing.page({"special": s, "moves": None}, "")
+        self.assertIn("no new money", page)
+        self.assertNotIn("n/a", page)
+
     def test_bad_specials_are_refused(self):
         for spec, message in ((dict(SPEC, sources={"new_money": 50}), "add to 100"),
                               (dict(SPEC, sources={"new_money": 10, "nothing": 90}), "not a liability"),

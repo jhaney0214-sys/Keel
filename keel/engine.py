@@ -22,6 +22,7 @@ and `reconcile` checks that it did.
 """
 
 import dataclasses
+import functools
 import math
 
 from keel.model import Index, Position
@@ -29,6 +30,7 @@ from keel.model import Index, Position
 CASH = "cash"
 
 
+@functools.lru_cache(maxsize=65536)
 def monthly(annual):
     """An annual rate of loss (CPR, decay) as the monthly one that compounds to it."""
     annual = min(max(annual, 0.0), 1.0)
@@ -53,18 +55,30 @@ class Stepper(object):
         self.drivers = drivers or {}
         self.base_short = assumptions.curve.rate(assumptions.short_tenor) / 100.0
         self.start_rate = {}
+        # The scenario, path and curve are fixed for the stepper's life, so
+        # each (month, tenor) is worked out once, not once per position.
+        self._shifts = {}
+        self._rates = {}
 
     def shift_bp(self, month, tenor):
         """The total move from today's curve: the base-case path, if any, and the scenario's shock."""
-        move = self.s.shift_bp(month, tenor)
-        if self.path is not None:
-            move += self.path.move_bp(month, tenor)
+        key = (month, tenor)
+        move = self._shifts.get(key)
+        if move is None:
+            move = self.s.shift_bp(month, tenor)
+            if self.path is not None:
+                move += self.path.move_bp(month, tenor)
+            self._shifts[key] = move
         return move
 
     def curve_rate(self, month, tenor):
-        value = self.a.curve.rate(tenor) + self.shift_bp(month, tenor) / 100.0
-        floor = self.s.floor
-        return (value if floor is None else max(floor, value)) / 100.0
+        key = (month, tenor)
+        rate = self._rates.get(key)
+        if rate is None:
+            value = self.a.curve.rate(tenor) + self.shift_bp(month, tenor) / 100.0
+            floor = self.s.floor
+            rate = self._rates[key] = (value if floor is None else max(floor, value)) / 100.0
+        return rate
 
     def short_rate(self, month):
         return self.curve_rate(month, self.a.short_tenor)

@@ -29,8 +29,32 @@ def find(folder, stem, required=True):
     return found[0]
 
 
+#: Tables already read, by (path, sheet, size, modified time): a large core
+#: export is read by the importer and again by a saved query, and parsing a
+#: 100,000-row workbook takes seconds. A changed file is read afresh.
+_READ = {}
+_READ_KEEP = 8
+
+
 def read_table(path, sheet=None):
-    """[dict of str] from a CSV, or from the first sheet (or `sheet`) of a workbook."""
+    """[dict of str] from a CSV, or from the first sheet (or `sheet`) of a
+    workbook. Each call returns its own copies of the rows."""
+    try:
+        stat = os.stat(path)
+        key = (os.path.abspath(path), sheet, stat.st_size, stat.st_mtime_ns)
+    except OSError:
+        key = None
+    if key is None or key not in _READ:
+        rows = _read_table(path, sheet)
+        if key is None:
+            return rows
+        if len(_READ) >= _READ_KEEP:
+            _READ.pop(next(iter(_READ)))
+        _READ[key] = rows
+    return [dict(row) for row in _READ[key]]
+
+
+def _read_table(path, sheet=None):
     if path.lower().endswith(".xlsx"):
         try:
             book = xlsx.read_workbook(path)

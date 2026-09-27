@@ -60,35 +60,35 @@ def run(positions, a, study=None):
     """{"baseline": {...}, "rows": [{family, variant, products, values, status, moves}]}.
     With `study` (deposits.recommended's {product: {field: percent}}), one
     more row runs the model on the deposit study's estimates."""
-    baseline = measure(positions, a)
-    base_status = _status(a, baseline)
-    rows = []
+    from keel import parallel
+    variants = []               # (row without values, the changed assumptions)
     if study:
         changed = dict(a.products)
         for name, values in study.items():
             if name in changed:
                 changed[name] = dataclasses.replace(changed[name], **{k: v / 100.0 for k, v in values.items()})
-        b = dataclasses.replace(a, products=changed)
-        values = measure(positions, b)
-        status = _status(b, values)
-        rows.append({"family": "Deposit study", "variant": "as estimated", "field": "study",
-                     "products": sorted(study), "values": values, "status": status,
-                     "flips": [k for k in KEYS if status[k] != base_status[k]]})
-    for family, field, chosen, variants in FAMILIES:
+        variants.append(({"family": "Deposit study", "variant": "as estimated", "field": "study",
+                          "products": sorted(study)}, dataclasses.replace(a, products=changed)))
+    for family, field, chosen, options in FAMILIES:
         products = sorted({p.product for p in positions if chosen(p, a.products[p.product])})
         if not products:
             continue
-        for label, change in variants:
+        for label, change in options:
             changed = dict(a.products)
             for name in products:
                 spec = changed[name]
                 changed[name] = dataclasses.replace(spec, **{field: change(getattr(spec, field))})
-            b = dataclasses.replace(a, products=changed)
-            values = measure(positions, b)
-            status = _status(b, values)
-            rows.append({"family": family, "variant": label, "field": field, "products": products,
-                         "values": values, "status": status,
-                         "flips": [k for k in KEYS if status[k] != base_status[k]]})
+            variants.append(({"family": family, "variant": label, "field": field, "products": products},
+                             dataclasses.replace(a, products=changed)))
+    # Every variant is its own pass over the book: run them side by side.
+    measured = parallel.run([("keel.sensitivity.measure", (positions, a), {})]
+                            + [("keel.sensitivity.measure", (positions, b), {}) for _, b in variants])
+    baseline = measured[0]
+    base_status = _status(a, baseline)
+    rows = []
+    for (row, b), values in zip(variants, measured[1:]):
+        status = _status(b, values)
+        rows.append(dict(row, values=values, status=status, flips=[k for k in KEYS if status[k] != base_status[k]]))
     return {"baseline": baseline, "status": base_status, "rows": rows}
 
 

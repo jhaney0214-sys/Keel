@@ -42,15 +42,17 @@ def run(positions, a, base_run=None, index_move=INDEX_MOVE, share_move=SHARE_MOV
             continue
         e = exposure.setdefault(key, [0.0, 0.0])
         e[0 if p.side == "asset" else 1] += p.balance
+    from keel import parallel
+    tests = [(key, bp) for key in sorted(exposure, key=lambda k: (k == "shares", k))
+             for bp in ((-share_move, share_move) if key == "shares" else (-index_move, index_move))]
+    plans = parallel.run([("keel.engine.going_concern",
+                           (positions, a, Scenario("%s %+dbp" % (key, bp), 0, 0, a.rate_floor, basis={key: bp})), {})
+                          for key, bp in tests])
     rows = []
-    for key in sorted(exposure, key=lambda k: (k == "shares", k)):
-        moves = (-share_move, share_move) if key == "shares" else (-index_move, index_move)
-        for bp in moves:
-            s = Scenario("%s %+dbp" % (key, bp), 0, 0, a.rate_floor, basis={key: bp})
-            r = engine.going_concern(positions, a, s)
-            y1, y2 = _nii(r, 1), _nii(r, 2) if len(r) >= 24 else None
-            rows.append({"test": "share rates" if key == "shares" else key, "key": key, "move_bp": bp,
-                         "exposure_assets": exposure[key][0], "exposure_liabilities": exposure[key][1],
-                         "y1": y1, "y1_change": y1 - b1, "y1_change_pct": (y1 - b1) / b1 if b1 else 0.0,
-                         "y2_change": None if y2 is None or b2 is None else y2 - b2})
+    for (key, bp), r in zip(tests, plans):
+        y1, y2 = _nii(r, 1), _nii(r, 2) if len(r) >= 24 else None
+        rows.append({"test": "share rates" if key == "shares" else key, "key": key, "move_bp": bp,
+                     "exposure_assets": exposure[key][0], "exposure_liabilities": exposure[key][1],
+                     "y1": y1, "y1_change": y1 - b1, "y1_change_pct": (y1 - b1) / b1 if b1 else 0.0,
+                     "y2_change": None if y2 is None or b2 is None else y2 - b2})
     return rows

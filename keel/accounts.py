@@ -60,11 +60,11 @@ def _sum(rows, *fields):
     return {f: sum(r[f] for r in rows) for f in fields}
 
 
-def run(positions, a, detail, lines=None, totals=None):
+def run(positions, a, detail, lines=None, totals=None, ftp=None):
     """Account rows and their roll-ups, or None when there is no detail."""
     if not detail:
         return None
-    ftp = profitability.ftp_rates(positions, a)
+    ftp = ftp if ftp is not None else profitability.ftp_rates(positions, a)
     rows = [_row(x, a.products[x["product"]], ftp.get(x["position"]), a) for x in detail]
 
     # ---- by product: the account rows against the product view

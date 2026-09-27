@@ -46,6 +46,7 @@ class NEV:
     pv_assets: float
     pv_liabilities: float
     by_product: dict
+    by_position: dict = None        # position id -> value, when asked for
 
     @property
     def nev(self):
@@ -82,7 +83,7 @@ def nev(positions, assumptions, scenario, supervisory=False):
         raise ValueError("the supervisory test prices shares only at base and +300bp, not %s"
                          % scenario.name)
     flows = engine.runoff(positions, assumptions, scenario)
-    by_product = {}
+    by_product, by_position = {}, {}
     pv_assets = pv_liabilities = 0.0
     for p in positions:
         if supervisory and is_share(p):
@@ -99,11 +100,12 @@ def nev(positions, assumptions, scenario, supervisory=False):
         else:
             value = p.balance
         by_product[p.product] = by_product.get(p.product, 0.0) + value
+        by_position[p.id] = value
         if p.side == "asset":
             pv_assets += value
         else:
             pv_liabilities += value
-    return NEV(scenario.name, pv_assets, pv_liabilities, by_product)
+    return NEV(scenario.name, pv_assets, pv_liabilities, by_product, by_position)
 
 
 def ncua_test(base, shocked):
@@ -329,17 +331,20 @@ def security_analytics(positions, assumptions, products):
     from keel.curve import Scenario
     base, up, down = assumptions.scenarios[0], Scenario("+100", 100, floor=assumptions.rate_floor), \
         Scenario("-100", -100, floor=assumptions.rate_floor)
+    chosen = [p for p in positions if p.product in products and p.balance > 0]
+    # Each position's value depends only on its own cash flows, so one pass
+    # per scenario values them all (it was one pass per security).
+    values = {name: nev(chosen, assumptions, s).by_position for name, s in (("base", base), ("up", up),
+                                                                          ("down", down))}
+    runoff = engine.runoff(chosen, assumptions, base)
     out = []
-    for p in positions:
-        if p.product not in products or p.balance <= 0:
-            continue
-        value = _single_pv(p, assumptions, base)
+    for p in chosen:
+        value = values["base"][p.id]
         if p.amortization != "none":
-            flows = engine.runoff([p], assumptions, base).get(p.id, [])
+            flows = runoff.get(p.id, [])
             paid = sum(f.principal for f in flows)
             wal = sum(k * f.principal for k, f in enumerate(flows, 1)) / paid / 12.0 if paid else 0.0
-            dur = (_single_pv(p, assumptions, down) - _single_pv(p, assumptions, up)) / (2 * value * 0.01) \
-                if value else 0.0
+            dur = (values["down"][p.id] - values["up"][p.id]) / (2 * value * 0.01) if value else 0.0
         else:
             wal = dur = 0.0
         out.append({"id": p.id, "name": p.name, "product": p.product, "book": p.balance,

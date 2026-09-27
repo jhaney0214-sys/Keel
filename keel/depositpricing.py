@@ -199,14 +199,25 @@ def page(result, style):
     if s:
         better = s["marginal"] is not None and s["marginal"] <= s["wholesale"]
         parts.append("<h2>%s</h2>" % esc(s["name"]))
-        parts.append("<p>%s at <b>%s</b> for %d months, offered for %d months, raising <b>$%sK</b>. Only <b>$%sK</b> "
-                     "of it is new money; the rest was already here and now costs more. Each new dollar costs "
-                     "<b>%s</b> a year, against <b>%s</b> for wholesale money of the same term: %s</p>" % (
-                         "A certificate special", pct(s["rate"]), s["term_months"], s["window"], k(s["volume"]),
-                         k(s["new_money"]), "n/a" if s["marginal"] is None else pct(s["marginal"]),
-                         pct(s["wholesale"]),
-                         report.chip("within" if better else "breach",
-                                     "cheaper than borrowing" if better else "dearer than borrowing")))
+        if s["new_money"] <= 0:
+            # Renewals take the whole volume: there is no new money to price,
+            # only a higher rate on money that would have stayed anyway.
+            parts.append("<p>A certificate special at <b>%s</b> for %d months, offered for %d months, raising "
+                         "<b>$%sK</b>, all of it from certificates maturing in the window that would have renewed "
+                         "anyway. It raises <b>no new money</b>: it pays <b>$%sK</b> a year more to keep money "
+                         "already here. %s</p>" % (
+                             pct(s["rate"]), s["term_months"], s["window"], k(s["volume"]),
+                             k(s["incremental_cost"]),
+                             report.chip("breach", "a cost with nothing raised")))
+        else:
+            parts.append("<p>A certificate special at <b>%s</b> for %d months, offered for %d months, raising "
+                         "<b>$%sK</b>. Only <b>$%sK</b> of it is new money; the rest was already here and now "
+                         "costs more. Each new dollar costs <b>%s</b> a year, against <b>%s</b> for wholesale money "
+                         "of the same term: %s</p>" % (
+                             pct(s["rate"]), s["term_months"], s["window"], k(s["volume"]), k(s["new_money"]),
+                             pct(s["marginal"]), pct(s["wholesale"]),
+                             report.chip("within" if better else "breach",
+                                         "cheaper than borrowing" if better else "dearer than borrowing")))
         parts.append(report.table(["Where the money comes from", "Balance ($000)", "Rate it paid before", "Note"],
                                   [[esc(x["source"]), k(x["balance"]),
                                     "" if x["old_rate"] is None else pct(x["old_rate"]), esc(x["note"])]
@@ -226,7 +237,7 @@ def page(result, style):
                          "balances that move over costs more than wholesale money would, even if every other dollar "
                          "were new.</p>")
         grid = s["grid"]
-        if grid:
+        if grid and s["new_money"] > 0:          # no new money: nothing for the grid to price
             parts.append("<h3>Marginal cost of new money by rate and new-money share</h3>")
             parts.append(report.table(["Special rate"] + ["%d%% new" % c["new_share"] for c in grid[0]["cells"]],
                                       [[pct(row["rate"] / 100.0)] + [

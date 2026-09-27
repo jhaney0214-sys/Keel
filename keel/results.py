@@ -77,8 +77,18 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
     against its actuals file, its saved queries and its run history.
     `assumption_tests` (default: when there is a folder) runs each key
     assumption's high and low variant through the rate-risk measures."""
+    from keel import parallel
     base_scenario = a.scenarios[0]
-    runs = {s.name: engine.going_concern(positions, a, s) for s in a.scenarios}
+    # Every scenario's plan and NEV, and the supervisory NEV, are independent
+    # passes over the same book: run them side by side.
+    instant = [s for s in a.scenarios if s.instantaneous]
+    supervisory = [(k, Scenario(k, bp, floor=a.rate_floor)) for k, bp in (("base", 0), ("+300", 300))]
+    done = parallel.run([("keel.engine.going_concern", (positions, a, s), {}) for s in a.scenarios]
+                        + [("keel.measures.nev", (positions, a, s), {}) for s in instant]
+                        + [("keel.measures.nev", (positions, a, s), {"supervisory": True}) for _, s in supervisory])
+    runs = {s.name: done[i] for i, s in enumerate(a.scenarios)}
+    nevs = {s.name: done[len(a.scenarios) + i] for i, s in enumerate(instant)}
+    sup = {k: done[len(a.scenarios) + len(instant) + i] for i, (k, _) in enumerate(supervisory)}
     base = runs["base"]
     _, open_assets, open_liabilities, open_equity = engine.opening(positions)
 
@@ -94,12 +104,9 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
                 for s in a.scenarios]
 
     # ---- NEV, own assumptions and supervisory
-    nevs = {s.name: measures.nev(positions, a, s) for s in a.scenarios if s.instantaneous}
     nev_rows = [{"scenario": k, "pv_assets": n.pv_assets, "pv_liabilities": n.pv_liabilities, "nev": n.nev,
                  "ratio": n.ratio, "change": n.nev / nevs["base"].nev - 1 if nevs["base"].nev else 0.0}
                 for k, n in nevs.items()]
-    sup = {k: measures.nev(positions, a, Scenario(k, bp, floor=a.rate_floor), supervisory=True)
-           for k, bp in (("base", 0), ("+300", 300))}
     test = measures.ncua_test(sup["base"], sup["+300"])
 
     # ---- the plan
@@ -149,7 +156,8 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
                                              tie.difference)))
 
     # ---- product profitability and capital
-    lines, treasury, prof_totals = profitability.product_lines(positions, a)
+    ftp = profitability.ftp_rates(positions, a)         # once, for products and accounts alike
+    lines, treasury, prof_totals = profitability.product_lines(positions, a, ftp)
     checks.append(profitability.check_ftp(lines, prof_totals))
     total_rwa = profitability.rwa(positions, a)
 
@@ -219,7 +227,7 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
     from keel import accounts, basis, capital, credit, deposits, history, sensitivity
     result["capital"] = capital.measures_for(positions, a, securities)
     result["basis"] = basis.run(positions, a, base)
-    result["accounts"] = accounts.run(positions, a, imported.accounts, lines, prof_totals)         if imported is not None and imported.accounts else None
+    result["accounts"] = accounts.run(positions, a, imported.accounts, lines, prof_totals, ftp)         if imported is not None and imported.accounts else None
     if result["accounts"]:
         checks.append(result["accounts"]["check"])
     result["credit"] = credit.run(positions, a, a.credit_scenarios, base)

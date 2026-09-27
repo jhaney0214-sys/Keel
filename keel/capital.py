@@ -85,12 +85,6 @@ def measures_for(positions, a, securities):
 def _market_at(positions, a, securities, bp):
     ids = {s["id"] for s in securities}
     shock = Scenario("+%d" % bp, bp, floor=a.rate_floor)
-    total = 0.0
-    for p in positions:
-        if p.id not in ids:
-            continue
-        if p.amortization == "none":
-            total += p.balance                  # stakes at book, as in NEV
-        else:
-            total += measures.nev([p], a, shock).pv_assets
-    return total
+    held = [p for p in positions if p.id in ids]
+    # Stakes with no maturity count at book, as in NEV, which values them so.
+    return sum(measures.nev(held, a, shock).by_position.values()) if held else 0.0

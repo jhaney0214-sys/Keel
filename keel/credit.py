@@ -98,14 +98,26 @@ def lifetime(positions, a, scenario=None):
 
 def run(positions, a, credit_scenarios, base_run=None):
     """Each credit scenario through the plan and the CECL estimate."""
+    from keel import parallel
     _, opening_assets, _, opening_equity = engine.opening(positions)
-    rows_base, life_base = lifetime(positions, a)
+    stressed = [s for s in credit_scenarios if not (s.multiplier == 1.0 and s.months == 0)]
+    # The baseline's lifetime losses and each stressed scenario's plan and
+    # lifetime losses are independent passes: run them side by side.
+    done = parallel.run([("keel.credit.lifetime", (positions, a), {})]
+                        + [("keel.engine.going_concern", (positions, a, a.scenarios[0]), {"credit": s.factor})
+                           for s in stressed]
+                        + [("keel.credit.lifetime", (positions, a, s), {}) for s in stressed])
+    rows_base, life_base = done[0]
+    plans = {id(s): done[1 + i] for i, s in enumerate(stressed)}
+    lives = {id(s): done[1 + len(stressed) + i][1] for i, s in enumerate(stressed)}
     out = []
     for s in credit_scenarios:
         is_base = s.multiplier == 1.0 and s.months == 0
-        plan = base_run if (is_base and base_run is not None) else \
-            engine.going_concern(positions, a, a.scenarios[0], credit=s.factor)
-        _, life = (rows_base, life_base) if is_base else lifetime(positions, a, s)
+        if is_base:
+            plan = base_run if base_run is not None else engine.going_concern(positions, a, a.scenarios[0])
+            life = life_base
+        else:
+            plan, life = plans[id(s)], lives[id(s)]
         build = life - life_base
         y = [measures.income_statement(measures.year(plan, n)) for n in (1, 2)]
         out.append({"name": s.name, "multiplier": s.multiplier, "months": s.months,

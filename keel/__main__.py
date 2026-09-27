@@ -265,6 +265,11 @@ def run_special(args):
         handle.write(terms.translate(depositpricing.page(result, report.STYLE), assumptions))
     s = result["special"]
     print("special -> %s" % out)
+    if s["new_money"] <= 0:
+        print("%s: $%s raised, all from renewals of maturing certificates: no new money, and $%s a year more "
+              "to keep money already here" % (s["name"], "{:,.0f}".format(s["volume"]),
+                                               "{:,.0f}".format(s["incremental_cost"])))
+        return 0
     print("%s: $%s raised, $%s new money; marginal cost %s against wholesale %.2f%%%s" % (
         s["name"], "{:,.0f}".format(s["volume"]), "{:,.0f}".format(s["new_money"]),
         "n/a" if s["marginal"] is None else "%.2f%%" % (100 * s["marginal"]), 100 * s["wholesale"],

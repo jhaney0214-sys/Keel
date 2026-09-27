@@ -118,9 +118,9 @@ class Line:
         return self.net / self.capital if self.capital > 0 else None
 
 
-def product_lines(positions, a):
+def product_lines(positions, a, ftp=None):
     """([Line] per product, the treasury margin, a dict of totals)."""
-    ftp = ftp_rates(positions, a)
+    ftp = ftp if ftp is not None else ftp_rates(positions, a)
     short = a.curve.rate(a.short_tenor) / 100.0
     lines = {}
     for p in positions:

@@ -19,9 +19,20 @@ class Curve(object):
             if isinstance(points, dict) else sorted((float(t), float(r)) for t, r in points)
         self.tenors = [t for t, _ in pairs]
         self.rates = [r for _, r in pairs]
+        # A curve never changes once built, and the projection asks it the
+        # same few tenors millions of times: remember each answer.
+        self._cache = {}
 
     def rate(self, months):
         """Annual rate in percent at a tenor in months."""
+        cached = self._cache.get(months)
+        if cached is not None:
+            return cached
+        value = self._rate(months)
+        self._cache[months] = value
+        return value
+
+    def _rate(self, months):
         t = self.tenors
         if months <= t[0]:
             return self.rates[0]
@@ -54,6 +65,7 @@ class Scenario(object):
         # False for "rates unchanged": the one scenario that ignores the
         # base-case rate path, so the plan can be read against it.
         self.use_path = use_path
+        self._shifts = {}               # (month, tenor) -> bp; a scenario never changes once built
 
     @property
     def instantaneous(self):
@@ -67,6 +79,13 @@ class Scenario(object):
     def shift_bp(self, month, tenor=None):
         """The move at `tenor` (default: the ten-year point for a shaped
         scenario) in `month`."""
+        key = (month, tenor)
+        cached = self._shifts.get(key)
+        if cached is None:
+            cached = self._shifts[key] = self._shift_bp(month, tenor)
+        return cached
+
+    def _shift_bp(self, month, tenor):
         full = self.shape.rate(120 if tenor is None else tenor) if self.shape else self.shock_bp
         if self.ramp_months <= 0:
             return full
