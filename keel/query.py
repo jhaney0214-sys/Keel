@@ -87,7 +87,16 @@ class Tables(object):
                 self.files[os.path.splitext(os.path.basename(path))[0]] = path
 
     def names(self):
-        return ["positions", "profitability", "budget", "projection"] + sorted(self.files)
+        extra = ["accounts", "members"] if self.imported is not None and self.imported.accounts else []
+        return ["positions", "profitability", "budget", "projection"] + extra + sorted(self.files)
+
+    def _accounts(self):
+        if self.r is not None and self.r.get("accounts"):
+            return self.r["accounts"]
+        if "_accounts" not in self.cache:
+            from keel import accounts
+            self.cache["_accounts"] = accounts.run(self.positions, self.a, self.imported.accounts)
+        return self.cache["_accounts"]
 
     def __contains__(self, name):
         return name in self.names()
@@ -116,6 +125,10 @@ class Tables(object):
                      "expected_loss": x.expected_loss, "capital": x.capital, "net": x.net,
                      "roa": 100 * x.rate(x.net), "raroc": None if x.raroc is None else 100 * x.raroc}
                     for x in lines]
+        if name in ("accounts", "members") and name in self.names():
+            rows = self._accounts()["rows" if name == "accounts" else "members"]
+            return [dict(x, rate=100 * x["rate"], ftp_rate=100 * x["ftp_rate"]) if name == "accounts" else dict(x)
+                    for x in rows]
         if name == "budget":
             from keel import budget
             b = self.r["budget"] if self.r is not None else budget.build(self.positions, self.a, self._base())

@@ -36,6 +36,11 @@ of them from it:
   funded at a rate matched to its own cash flows; each product's spread,
   fees, servicing cost, expected loss, allocated capital, ROA and RAROC;
   treasury's margin from the rate mismatch; all of it adding back to NII.
+- **Account, member and branch profitability:** every loan, certificate and
+  member share balance priced as its product is, with a fixed cost per
+  account; losing accounts and break-even balances by product; members
+  ranked (the whale curve, deciles, relationship type) and rolled up by
+  branch.
 - **Capital:** credit unions' net worth categories, risk-based capital ratio
   and CCULR for those over $500 million; banks' Tier 1 leverage, CET1, Tier 1
   and total risk-based ratios and CBLR; and net worth with the securities at
@@ -133,12 +138,13 @@ stored them as dates or someone typed them as text. A folder holding both
 
 | File | Rows |
 |---|---|
-| `loans.csv` | one per loan: product code, balance, rate, fixed/variable, index, margin, next reset, caps and floors, origination and maturity dates, amortization period for balloons, days delinquent |
-| `certificates.csv` | one per certificate: product, balance, rate, open and maturity dates |
+| `loans.csv` | one per loan: product code, balance, rate, fixed/variable, index, margin, next reset, caps and floors, origination and maturity dates, amortization period for balloons, days delinquent; optionally member_id and branch |
+| `certificates.csv` | one per certificate: product, balance, rate, open and maturity dates; optionally member_id and branch |
 | `shares.csv` | non-maturity shares by product and balance tier: accounts, balance, rate |
 | `investments.csv` | one per security: type, par, book value, coupon, book yield, maturity, next call date, WAM and CPR for MBS and CMOs, AFS or HTM |
 | `borrowings.csv` | one per borrowing: lender, balance, rate, maturity |
 | `gl.csv` | the trial balance the detail must tie to |
+| `member_shares.csv` | optional: one per member and share product: member_id, product code, balance, branch |
 | `product_map.json` or `.xlsx` | core product codes to Keel products, and the GL accounts for cash, fixed assets, the NCUSIF deposit, other assets, the allowance and other liabilities (as a workbook: one sheet per section) |
 
 The importer pools loans and certificates that behave alike (same product,
@@ -281,6 +287,25 @@ FTP, its costs and RAROC, and how the products' spreads plus treasury's
 margin make up net interest income. `keel price` and the Pricing page price
 one deal; `keel newproduct` and the New product page analyse a launch.
 
+## Accounts, members and branches
+
+With core files in `data/`, the report's Members section prices every loan
+and certificate as its product is priced: the spread over the funds
+transfer price of the pool it joined, the capital credit, fees, servicing,
+expected loss, and each product's `account_cost` (dollars a year per
+account, set on the Products sheet). The accounts add back to their
+products, and a reconciliation check says so. By product it shows how many
+accounts lose money and the balance at which an average account breaks
+even.
+
+Add `member_id` and `branch` columns to `loans.csv` and `certificates.csv`,
+and `data/member_shares.csv` (member_id, product_code, balance, optionally
+branch) for share balances, and it ranks members: the whale curve, deciles,
+borrower-and-saver against saver-only and borrower-only, and the same by
+branch (a member's branch is the one holding most of their balance). Every
+account and member is queryable: `keel query <folder> --table accounts` or
+`--table members`.
+
 ## Budget and actuals
 
 The Budget section is the base plan's first year by month. Put
@@ -352,7 +377,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 146 tests
+python -m unittest discover -s tests      # 156 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,

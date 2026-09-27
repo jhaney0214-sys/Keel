@@ -132,10 +132,12 @@ def _ticks(lo, hi, count=4):
     return [first + i * step for i in range(n + 1)]
 
 
-def line(points, fmt, title, x_label="month", reference=None, reference_label="", zero=True):
+def line(points, fmt, title, x_label="month", reference=None, reference_label="", zero=True, x_ticks=None,
+         x_fmt=str):
     """One series over time. `points` are (x, y, tooltip). `reference` draws a
     dashed horizontal line (zero, or a floor) with its label. `zero` keeps
-    zero on the axis; a ratio that lives far from zero can drop it."""
+    zero on the axis; a ratio that lives far from zero can drop it. `x_ticks`
+    limits the x labels to those values (default: every point)."""
     top, bottom, left, right = 28, 36, 72, 16
     height = 230
     plot_h = height - top - bottom
@@ -163,7 +165,9 @@ def line(points, fmt, title, x_label="month", reference=None, reference_label=""
         parts.append('<g class="c-mark"><title>%s</title><rect class="c-hit" x="%.1f" y="%d" width="%.1f" height="%d"/>'
                      '<circle class="c-dot" cx="%.1f" cy="%.1f" r="4"/></g>' % (
                          _esc(tip), px(x) - step / 2, top, step, plot_h, px(x), py(y)))
-        parts.append('<text class="c-tick" x="%.1f" y="%d" text-anchor="middle">%s</text>' % (px(x), height - 16, _esc(x)))
+        if x_ticks is None or x in x_ticks:
+            parts.append('<text class="c-tick" x="%.1f" y="%d" text-anchor="middle">%s</text>' % (
+                px(x), height - 16, _esc(x_fmt(x))))
     parts.append('<text class="c-tick" x="%d" y="%d" text-anchor="middle">%s</text>' % (left + plot_w / 2, height - 2, _esc(x_label)))
     parts.append("</svg>")
     return "".join(parts)

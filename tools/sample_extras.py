@@ -32,20 +32,20 @@ COSTS = {
     "agency_cmo": {"risk_weight": 20.0, "servicing_cost": 0.03},
     "municipals": {"risk_weight": 20.0, "servicing_cost": 0.03},
     "invest_cds": {"risk_weight": 20.0, "servicing_cost": 0.02},
-    "new_auto": {"risk_weight": 75.0, "servicing_cost": 0.60, "fee_yield": 0.10, "origination_cost": 0.75},
-    "used_auto": {"risk_weight": 75.0, "servicing_cost": 0.70, "fee_yield": 0.15, "origination_cost": 0.75},
-    "first_mortgage": {"collateral_value": 75.0, "risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05, "origination_cost": 1.00},
-    "first_mortgage_15": {"collateral_value": 75.0, "risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05, "origination_cost": 1.00},
-    "arm_mortgage": {"collateral_value": 75.0, "risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05, "origination_cost": 1.00},
-    "heloc": {"collateral_value": 50.0, "risk_weight": 100.0, "servicing_cost": 0.50, "fee_yield": 0.10, "origination_cost": 0.50},
-    "credit_card": {"risk_weight": 75.0, "servicing_cost": 2.50, "fee_yield": 2.00},
-    "unsecured": {"risk_weight": 75.0, "servicing_cost": 1.50, "fee_yield": 0.25, "origination_cost": 1.00},
-    "commercial_re": {"collateral_value": 60.0, "risk_weight": 100.0, "servicing_cost": 0.40, "fee_yield": 0.10, "origination_cost": 0.75},
-    "regular_shares": {"servicing_cost": 0.60, "fee_yield": 0.35},
-    "share_drafts": {"servicing_cost": 1.60, "fee_yield": 2.20},
-    "money_market": {"servicing_cost": 0.30, "fee_yield": 0.05},
-    "ira_shares": {"servicing_cost": 0.30},
-    "certificates": {"servicing_cost": 0.15},
+    "new_auto": {"risk_weight": 75.0, "servicing_cost": 0.60, "fee_yield": 0.10, "origination_cost": 0.75, "account_cost": 110.0},
+    "used_auto": {"risk_weight": 75.0, "servicing_cost": 0.70, "fee_yield": 0.15, "origination_cost": 0.75, "account_cost": 110.0},
+    "first_mortgage": {"collateral_value": 75.0, "risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05, "origination_cost": 1.00, "account_cost": 220.0},
+    "first_mortgage_15": {"collateral_value": 75.0, "risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05, "origination_cost": 1.00, "account_cost": 220.0},
+    "arm_mortgage": {"collateral_value": 75.0, "risk_weight": 50.0, "servicing_cost": 0.25, "fee_yield": 0.05, "origination_cost": 1.00, "account_cost": 220.0},
+    "heloc": {"collateral_value": 50.0, "risk_weight": 100.0, "servicing_cost": 0.50, "fee_yield": 0.10, "origination_cost": 0.50, "account_cost": 140.0},
+    "credit_card": {"risk_weight": 75.0, "servicing_cost": 2.50, "fee_yield": 2.00, "account_cost": 55.0},
+    "unsecured": {"risk_weight": 75.0, "servicing_cost": 1.50, "fee_yield": 0.25, "origination_cost": 1.00, "account_cost": 90.0},
+    "commercial_re": {"collateral_value": 60.0, "risk_weight": 100.0, "servicing_cost": 0.40, "fee_yield": 0.10, "origination_cost": 0.75, "account_cost": 1200.0},
+    "regular_shares": {"servicing_cost": 0.60, "fee_yield": 0.35, "account_cost": 30.0},
+    "share_drafts": {"servicing_cost": 1.60, "fee_yield": 2.20, "account_cost": 85.0},
+    "money_market": {"servicing_cost": 0.30, "fee_yield": 0.05, "account_cost": 35.0},
+    "ira_shares": {"servicing_cost": 0.30, "account_cost": 35.0},
+    "certificates": {"servicing_cost": 0.15, "account_cost": 25.0},
 }
 
 QUERIES = {
@@ -285,6 +285,88 @@ def budget_month_before(label):
     return "%04d-%02d" % (y, m)
 
 
+# --------------------------------------------------------------- members
+
+BRANCHES = (("Main Street", 0.38), ("Northside", 0.24), ("Eastgate", 0.18), ("Riverside", 0.12), ("Online", 0.08))
+
+
+def write_members(name="mid-cu", members=46000, seed=91):
+    """Member numbers and branches on the loan and certificate files, and each
+    member's share balances (member_shares.csv) drawn inside shares.csv's
+    tiers, which are rewritten with the account counts that result. The
+    balances themselves do not change, so nothing else in the sample moves.
+    Accounts go to members at random, so relationships are what chance makes
+    them."""
+    import csv
+    rng = random.Random(seed)
+    data = os.path.join(EXAMPLES, name, "data")
+    home = []
+    for i in range(members):
+        u, acc = rng.random(), 0.0
+        for branch, weight in BRANCHES:
+            acc += weight
+            if u <= acc:
+                break
+        home.append(branch)
+
+    def rewrite(file, id_field):
+        path = os.path.join(data, file)
+        with open(path, encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        fields = [f for f in rows[0] if f not in ("member_id", "branch")] + ["member_id", "branch"]
+        for r in rows:
+            m = rng.randrange(members)
+            r["member_id"], r["branch"] = "M%06d" % m, home[m]
+        with open(path, "w", encoding="utf-8", newline="") as handle:
+            w = csv.DictWriter(handle, fieldnames=fields)
+            w.writeheader()
+            w.writerows(rows)
+        return rows
+
+    rewrite("loans.csv", "loan_id")
+    rewrite("certificates.csv", "certificate_id")
+    path = os.path.join(data, "shares.csv")
+    with open(path, encoding="utf-8", newline="") as handle:
+        tiers = list(csv.DictReader(handle))
+    out = []
+    for t in tiers:
+        low, high, total = float(t["tier_low"]), float(t["tier_high"]) if t["tier_high"] else None, float(t["balance"])
+        balances, left = [], total
+        while left > 0:
+            if high:
+                v = low + (high - low) * rng.random() ** 1.6
+            else:
+                v = low * (1.0 + rng.expovariate(1.3)) if low else 22000 * rng.lognormvariate(0, 0.9)
+            if left - v < max(low, 1.0):
+                if left >= max(low, 1.0) and (not high or left < high):
+                    balances.append(left)
+                else:
+                    balances[rng.randrange(len(balances))] += left   # may nudge one account past its tier
+                left = 0.0
+            else:
+                balances.append(v)
+                left -= v
+        t["accounts"] = len(balances)
+        for v in balances:
+            m = rng.randrange(members)
+            out.append(["M%06d" % m, t["product_code"], round(v, 2), home[m]])
+    # Round-off: put each product's cents back on its largest account.
+    for code in {t["product_code"] for t in tiers}:
+        want = round(sum(float(t["balance"]) for t in tiers if t["product_code"] == code), 2)
+        mine = [r for r in out if r[1] == code]
+        gap = round(want - sum(r[2] for r in mine), 2)
+        max(mine, key=lambda r: r[2])[2] = round(max(mine, key=lambda r: r[2])[2] + gap, 2)
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        w = csv.DictWriter(handle, fieldnames=list(tiers[0]))
+        w.writeheader()
+        w.writerows(tiers)
+    with open(os.path.join(data, "member_shares.csv"), "w", encoding="utf-8", newline="") as handle:
+        w = csv.writer(handle)
+        w.writerow(["member_id", "product_code", "balance", "branch"])
+        w.writerows(out)
+    return len(out)
+
+
 # --------------------------------------------------------------- the bank
 
 BANK_PRODUCTS = {
@@ -432,6 +514,7 @@ def write_bank():
 
 
 def run():
+    print("%-14s %d member share accounts" % ("mid-cu", write_members()))
     write_queries()
     write_proposals()
     print("%-14s %d trial balance rows" % ("mid-cu", write_actuals()))

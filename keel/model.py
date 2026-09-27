@@ -133,6 +133,7 @@ class Product:
     fee_yield: float = 0.0        # annual fee income, share of balance
     origination_cost: float = 0.0 # one-time cost of new business, share of the amount
     collateral_value: float = 0.0 # share of the balance a secured lender (FHLB) lends against
+    account_cost: float = 0.0     # dollars a year per account, for account profitability
 
 
 def _decimal(value):
@@ -142,6 +143,8 @@ def _decimal(value):
 #: Every Product field entered in percent. Beta was missing the first time
 #: this ran, so a 10% beta read as 1000% and a +100bp shock paid regular
 #: shares 10.1%; `test_every_percent_field_is_converted` now guards the list.
+#: Product fields entered in dollars, not percent.
+DOLLAR_FIELDS = ("account_cost",)
 PERCENT_FIELDS = ("cpr", "cpr_per_100bp", "cpr_floor", "cpr_cap", "runoff", "runoff_per_100bp",
                   "beta", "rate_floor", "spread", "discount_spread", "growth", "charge_off",
                   "haircut", "stress_runoff", "call_threshold", "risk_weight", "servicing_cost",
@@ -283,7 +286,7 @@ def parse_assumptions(raw):
         for key, value in spec.items():
             if key not in {f.name for f in dataclasses.fields(Product)}:
                 raise InputError("assumptions: product %s has an unknown field %r" % (name, key))
-            values[key] = _decimal(value) if key in PERCENT_FIELDS else value
+            values[key] = _decimal(value) if key in PERCENT_FIELDS else float(value or 0)                 if key in DOLLAR_FIELDS else value
         products[name] = Product(name=name, **values)
     indexes = {k: (int(v["tenor_months"]), _decimal(v.get("spread", 0))) for k, v in raw["indexes"].items()}
     floor = raw.get("rate_floor", 0.0)

@@ -251,6 +251,25 @@ and a reconciliation check holds every report to it. Fees and operating
 expense not carried by products are shown as unallocated, so the run-rate
 reaches the institution's net income.
 
+**Accounts and members** (`keel/accounts.py`). The importer keeps every
+loan and certificate row with the pool it joined, and each row of
+`member_shares.csv` with the share tier its balance falls in. A row's P&L is
+its product's, at its own balance and rate and its pool's FTP rate:
+
+    contribution = spread + capital credit + fees - servicing - account_cost - expected loss
+
+A pool's rate is its rows' balance-weighted rate and its FTP applies to all
+of them, so the loan and certificate rows add up exactly to their products'
+interest and FTP; the check allows $1. `account_cost` is a fixed dollar cost
+per account and is not in the product view: it allocates part of the
+operating expense the products' servicing leaves unallocated, and the report
+says how much. A product's break-even balance is its account cost over its
+contribution per dollar before that cost. Members sum their rows; the whale
+curve is cumulative contribution against the share of members, most
+profitable first; a member's branch is the branch of most of their balance.
+All of it is a run-rate on today's balances, before unallocated overhead and
+before any value a relationship has beyond this year's margin.
+
 ## RAROC pricing
 
 `keel/pricing.py` runs one deal through the same monthly step on the base

@@ -72,6 +72,24 @@ def sheets(r):
          x.expected_loss, x.tax, x.net, x.rwa, x.capital, _pct(x.raroc)] for x in P["lines"]] + [
         [], ["treasury margin", "", "", "", "", P["treasury"]]] + [
         [key, "", "", "", "", value] for key, value in P["totals"].items()]
+    acc = r.get("accounts")
+    if acc:
+        out["Account profitability"] = [["product", "kind", "accounts", "balance", "interest", "ftp", "account_cost",
+                                         "contribution", "average_per_account", "losing_accounts_pct",
+                                         "breakeven_balance"]] + [
+            [p["product"], p["kind"], p["accounts"], p["balance"], p["interest"], p["ftp"], p["account_cost"], p["net"],
+             p["average_net"], _pct(p["losing_share"]), p["breakeven_balance"]] for p in acc["products"]]
+        if acc["members"]:
+            head = ["members", "loans", "deposits", "contribution", "average", "losing_pct"]
+            out["Members"] = ([["decile"] + head]
+                              + [[d["decile"], d["members"], d["loans"], d["deposits"], d["net"], d["average_net"], ""]
+                                 for d in acc["deciles"]]
+                              + [[], ["relationship"] + head]
+                              + [[g["relationship"], g["members"], g["loans"], g["deposits"], g["net"],
+                                  g["average_net"], _pct(g["losing_share"])] for g in acc["relationships"]]
+                              + [[], ["branch"] + head]
+                              + [[g["branch"], g["members"], g["loans"], g["deposits"], g["net"], g["average_net"],
+                                  _pct(g["losing_share"])] for g in acc["branches"]])
     b = r["budget"]
     for title, key in (("Budget balances", "average"), ("Budget interest", "interest")):
         out[title] = [["product", "side"] + b["labels"]] + [[p["product"], p["side"]] + p[key] for p in b["products"]]

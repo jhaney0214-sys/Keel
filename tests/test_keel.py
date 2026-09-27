@@ -77,7 +77,7 @@ class Arithmetic(unittest.TestCase):
     def test_every_percent_field_is_converted(self):
         numeric = {f.name for f in dataclasses.fields(model.Product)
                    if f.type in (float, "float")} - {"name"}
-        self.assertEqual(numeric - set(model.PERCENT_FIELDS), set())
+        self.assertEqual(numeric - set(model.PERCENT_FIELDS) - set(model.DOLLAR_FIELDS), set())
 
     def test_a_variable_rate_resets_to_index_plus_margin_within_its_cap(self):
         a = assumptions({"p": model.Product("p")})

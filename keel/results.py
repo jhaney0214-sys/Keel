@@ -216,8 +216,11 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
         "rate_path": rate_path(a),
         "base_run": base, "book": positions, "budget": plan_budget, "variance": variance,
     }
-    from keel import capital, credit, deposits, history, sensitivity
+    from keel import accounts, capital, credit, deposits, history, sensitivity
     result["capital"] = capital.measures_for(positions, a, securities)
+    result["accounts"] = accounts.run(positions, a, imported.accounts, lines, prof_totals)         if imported is not None and imported.accounts else None
+    if result["accounts"]:
+        checks.append(result["accounts"]["check"])
     result["credit"] = credit.run(positions, a, a.credit_scenarios, base)
     conc = liquidity_module.concentration(positions, folder, imported)
     lines, lendable = liquidity_module.collateral(positions, a)
@@ -410,6 +413,17 @@ def findings(r):
                         100 * raroc, 100 * a.hurdle_rate,
                         "; below it: %s" % ", ".join(below) if below else "; every product clears it",
                         "earns" if P["totals"]["treasury"] >= 0 else "costs", _money(P["totals"]["treasury"]))))
+    acc = r.get("accounts")
+    if acc and acc["totals"]["members"]:
+        t = acc["totals"]
+        whale = dict(acc["whale"])
+        top = next((share for share, cum in acc["whale"] if cum >= 1.0), None)
+        out.append(("Members", "Of %s members, %s (%.0f%%) cost more than they contribute; %s. The most profitable "
+                    "fifth earn %.0f%% of the total member contribution." % (
+                        "{:,}".format(t["members"]), "{:,}".format(t["losing_members"]),
+                        100.0 * t["losing_members"] / t["members"],
+                        "the most profitable %.0f%% earn all of it" % (100 * top) if top is not None and top < 1
+                        else "no smaller group earns all of it", 100 * whale.get(0.2, 0.0))))
     v = r.get("variance")
     if v:
         net = next(x for x in v["statement"] if x["line"] == "Net income")

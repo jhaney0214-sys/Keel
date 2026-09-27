@@ -11,6 +11,12 @@ they add up to the general ledger before modelling anything. This does both.
     data/borrowings.csv     one row per borrowing
     data/gl.csv             the trial balance
     data/product_map.json   core product codes -> Keel products, GL accounts
+    data/member_shares.csv  optional: each member's share balance by product
+
+Loans and certificates may carry `member_id` and `branch` columns; with
+them, and member_shares.csv, the report reads profitability by account,
+member and branch (keel/accounts.py). Every detail row is kept, with the
+position it pooled into, in `Imported.accounts`.
 
 Loans and certificates are pooled: rows that behave alike (product, rate
 type, index and margin, reset timing, remaining term and rate within a band)
@@ -103,6 +109,7 @@ class Imported:
     ties: list
     summaries: dict          # name -> list of dict rows, for the portfolio pages
     rows: dict               # file -> row count
+    accounts: list = dataclasses.field(default_factory=list)   # detail rows, see _account
 
 
 class Pool(object):
@@ -134,12 +141,22 @@ class Pool(object):
             amort_months=int(round(self.amort_x / b)), next_reset_months=t.get("next_reset_months", 0))
 
 
+def _account(kind, account_id, product, key, balance, rate, row, **extra):
+    """One detail row as the account-profitability view reads it. `key` is
+    the pool it joined (a position id once the pools are numbered)."""
+    out = {"kind": kind, "id": account_id, "product": product, "position": key, "balance": balance,
+           "rate": rate / 100.0, "member_id": (row.get("member_id") or "").strip(),
+           "branch": (row.get("branch") or "").strip()}
+    out.update(extra)
+    return out
+
+
 def import_folder(folder, as_of):
     """Read `folder`/data and return Imported. `as_of` is a date."""
     data = os.path.join(folder, "data")
     mapping = read_mapping(data)
     rows = {}
-    positions, summaries = [], {}
+    positions, summaries, detail = [], {}, []
 
     # ---- loans
     loans = _read(data, "loans.csv")
@@ -189,6 +206,9 @@ def import_folder(folder, as_of):
         if pool is None:
             pool = pools[key] = Pool(key, template)
         pool.add(balance, rate, term, _num(r["margin"]), amort)
+        detail.append(_account("loan", r["loan_id"], product, ("loan", key), balance, rate, r,
+                                 nonaccrual=nonaccrual, days_delinquent=int(_num(r.get("days_delinquent"))),
+                                 term_months=term))
         s = by_product.setdefault(product, {"product": product, "count": 0, "balance": 0.0, "rate_x": 0.0,
                                             "term_x": 0.0, "delinquent": 0.0, "nonaccrual": 0.0,
                                             "contract_x": 0.0})
@@ -201,8 +221,10 @@ def import_folder(folder, as_of):
             s["nonaccrual"] += balance
         if _num(r.get("days_delinquent")) >= 60:
             s["delinquent"] += balance
+    ids = {}
     for i, pool in enumerate(sorted(pools.values(), key=lambda p: (p.template["product"], p.key)), 1):
         positions.append(pool.position("loan%04d" % i))
+        ids[("loan", pool.key)] = positions[-1].id
     summaries["loans"] = [dict(s, rate=s["contract_x"] / s["balance"], term=s["term_x"] / s["balance"])
                           for s in sorted(by_product.values(), key=lambda s: -s["balance"])]
 
@@ -221,6 +243,8 @@ def import_folder(folder, as_of):
             pool = pools[key] = Pool(key, {"product": product, "side": "liability", "rate_type": "fixed",
                                            "amortization": "bullet"})
         pool.add(balance, rate, term)
+        detail.append(_account("certificate", r["certificate_id"], product, ("cert", key), balance, rate, r,
+                                 term_months=term))
         band = "0-3 months" if term <= 3 else "4-6 months" if term <= 6 else "7-12 months" if term <= 12 \
             else "13-24 months" if term <= 24 else "over 24 months"
         s = ladder.setdefault(band, {"band": band, "count": 0, "balance": 0.0, "rate_x": 0.0})
@@ -229,6 +253,9 @@ def import_folder(folder, as_of):
         s["rate_x"] += balance * rate
     for i, pool in enumerate(sorted(pools.values(), key=lambda p: p.key), 1):
         positions.append(pool.position("cert%04d" % i))
+        ids[("cert", pool.key)] = positions[-1].id
+    for x in detail:
+        x["position"] = ids[x["position"]]
     order = ["0-3 months", "4-6 months", "7-12 months", "13-24 months", "over 24 months"]
     summaries["certificates"] = [dict(ladder[b], rate=ladder[b]["rate_x"] / ladder[b]["balance"])
                                  for b in order if b in ladder]
@@ -237,14 +264,29 @@ def import_folder(folder, as_of):
     shares = _read(data, "shares.csv")
     rows["shares"] = len(shares)
     share_totals = {}
+    tiers = {}
     for i, r in enumerate(shares, 1):
         product = mapping["shares"][r["product_code"]]
         balance = _num(r["balance"])
+        tiers.setdefault(r["product_code"], []).append((_num(r["tier_low"]), _num(r["tier_high"], 0.0),
+                                                        "share%03d" % i, _num(r["rate"]), product))
         positions.append(Position(
             id="share%03d" % i, name="%s %s+" % (r["product_code"], r["tier_low"]), product=product,
             side="liability", balance=balance, rate=_num(r["rate"]) / 100.0, rate_type="administered",
             amortization="nonmaturity"))
         share_totals[r["product_code"]] = share_totals.get(r["product_code"], 0.0) + balance
+    member_shares = _read(data, "member_shares.csv", required=False)
+    rows["member_shares"] = len(member_shares)
+    for n, r in enumerate(member_shares, 2):
+        code = r.get("product_code", "")
+        if code not in tiers:
+            raise InputError("member_shares.csv line %d: product code %r is not in shares.csv" % (n, code))
+        balance = _num(r["balance"])
+        # The tier the balance falls in sets its rate and its position; a
+        # tier's high of 0 or blank means no upper bound.
+        low, high, pid, rate, product = next(
+            (t for t in tiers[code] if t[0] <= balance and (not t[1] or balance < t[1])), tiers[code][-1])
+        detail.append(_account("share", "%s-%s" % (r["member_id"], code), product, pid, balance, rate, r))
 
     # ---- investments
     securities = _read(data, "investments.csv")
@@ -293,7 +335,7 @@ def import_folder(folder, as_of):
         positions.append(Position(id="gl_" + key, name=key.replace("_", " "), product=product, side=side,
                                   balance=balance, rate=0.0, rate_type="none", amortization="none"))
     ties = _ties(gl, loans, certs, shares, securities, borrowings)
-    return Imported(positions=positions, ties=ties, summaries=summaries, rows=rows)
+    return Imported(positions=positions, ties=ties, summaries=summaries, rows=rows, accounts=detail)
 
 
 def _ties(gl, loans, certs, shares, securities, borrowings):

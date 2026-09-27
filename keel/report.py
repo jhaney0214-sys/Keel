@@ -454,6 +454,76 @@ def profitability_section(r):
     return "".join(parts)
 
 
+def accounts_section(r):
+    acc = r.get("accounts")
+    if not acc:
+        return ""
+    t = acc["totals"]
+    parts = ["<section id='accounts'><h2>Accounts, members and branches</h2>"]
+    parts.append("<p>Every loan and certificate%s priced as its product is: spread over the funds transfer price, "
+                 "capital credit, fees, servicing, expected loss and a fixed cost per account (each product's "
+                 "<code>account_cost</code>). %s accounts, contribution <b>$%sK</b> a year before the rest of "
+                 "overhead.</p>" % (
+                     " and each member's share balance" if any(p["kind"] == "share" for p in acc["products"]) else "",
+                     "{:,}".format(t["accounts"]), k(t["net"])))
+    rows = []
+    for p in acc["products"]:
+        rows.append([label(p["product"]), "{:,}".format(p["accounts"]), k(p["balance"]),
+                     "{:,.0f}".format(p["balance"] / p["accounts"]), k(p["account_cost"]), k(p["net"]),
+                     "{:,.0f}".format(p["average_net"]), pct(p["losing_share"], 0),
+                     "" if p["breakeven_balance"] is None else "{:,.0f}".format(p["breakeven_balance"])])
+    parts.append("<h3>By product ($000 unless shown in dollars)</h3>")
+    parts.append(table(["Product", "Accounts", "Balance", "Average balance ($)", "Account costs", "Contribution",
+                        "Per account ($)", "Accounts losing money", "Break-even balance ($)"], rows))
+    if acc["unallocated_expense"]:
+        parts.append("<p class='muted'>Account costs take $%sK of the $%sK of operating expense the products' "
+                     "servicing does not carry. The break-even balance is where an account's margin at its "
+                     "product's average rates covers its account cost.</p>" % (
+                         k(t["account_cost"]), k(acc["unallocated_expense"])))
+    if acc["members"]:
+        losing = t["losing_members"]
+        parts.append("<h3>Members</h3><p>%s members; <b>%s</b> (%s) contribute less than they cost.%s</p>" % (
+            "{:,}".format(t["members"]), "{:,}".format(losing), pct(losing / float(t["members"]), 0),
+            " %s accounts carry no member number and are left out of the member view." % "{:,}".format(t["unassigned"])
+            if t["unassigned"] else ""))
+        if acc["whale"]:
+            parts.append(charts.line(
+                [(int(round(100 * x)), 100 * y, "the top %.0f%% of members: %.0f%% of the contribution" % (100 * x, 100 * y))
+                 for x, y in acc["whale"][::5]], lambda v: "%.0f%%" % v,
+                "Cumulative contribution, members ranked most profitable first", x_label="share of members",
+                reference=100.0, reference_label="", x_ticks={0, 20, 40, 60, 80, 100},
+                x_fmt=lambda v: "%.0f%%" % v))
+            parts.append("<p class='muted'>The whale curve: the dashed line is the whole contribution. It rises above it while the profitable members add "
+                         "to it, and falls back as the members who lose money take their share away.</p>")
+        parts.append(table(["Decile", "Members", "Loans", "Deposits", "Contribution", "Per member ($)",
+                            "Products per member"],
+                           [[str(d["decile"]), "{:,}".format(d["members"]), k(d["loans"]), k(d["deposits"]),
+                             k(d["net"]), "{:,.0f}".format(d["average_net"]), "%.1f" % d["products"]]
+                            for d in acc["deciles"]]))
+        parts.append("<h3>By relationship</h3>")
+        parts.append(table(["Relationship", "Members", "Loans", "Deposits", "Contribution", "Per member ($)",
+                            "Losing money"],
+                           [[esc(g["relationship"]), "{:,}".format(g["members"]), k(g["loans"]), k(g["deposits"]),
+                             k(g["net"]), "{:,.0f}".format(g["average_net"]), pct(g["losing_share"], 0)]
+                            for g in acc["relationships"]]))
+        if any(g["branch"] != "(none)" for g in acc["branches"]):
+            parts.append("<h3>By branch</h3>")
+            parts.append(table(["Branch", "Members", "Loans", "Deposits", "Contribution", "Per member ($)",
+                                "Losing money"],
+                               [[esc(g["branch"]), "{:,}".format(g["members"]), k(g["loans"]), k(g["deposits"]),
+                                 k(g["net"]), "{:,.0f}".format(g["average_net"]), pct(g["losing_share"], 0)]
+                                for g in acc["branches"]]))
+            parts.append("<p class='muted'>A member belongs to the branch that holds most of their balance.</p>")
+    else:
+        parts.append("<p class='muted'>Add <code>member_id</code> (and <code>branch</code>) columns to loans.csv and "
+                     "certificates.csv, and <code>data/member_shares.csv</code> (member_id, product_code, balance), "
+                     "to read this by member and branch.</p>")
+    parts.append("<p class='muted'>Annual run-rate on today's balances, as the product view. Query every account "
+                 "or member with <code>keel query --table accounts</code> or <code>--table members</code>, or the "
+                 "Explore page.</p></section>")
+    return "".join(parts)
+
+
 def label_text(product):
     return product.replace("_", " ")
 
@@ -955,7 +1025,10 @@ def page(r, downloads=()):
     nav += [("plan", "Plan"), ("liquidity", "Liquidity"), ("capital", "Capital")]
     if r["securities"] or r["imported"] is not None:
         nav.append(("portfolios", "Portfolios"))
-    nav += [("profitability", "Profitability"), ("budget", "Budget")]
+    nav.append(("profitability", "Profitability"))
+    if r.get("accounts"):
+        nav.append(("accounts", "Members"))
+    nav.append(("budget", "Budget"))
     if r["queries"]:
         nav.append(("adhoc", "Ad hoc"))
     if r.get("history"):
@@ -975,7 +1048,7 @@ def page(r, downloads=()):
         "<nav aria-label='Sections'><div class='inner'>%s</div></nav><main>" % "".join(
             "<a href='#%s'>%s</a>" % (i, esc(t)) for i, t in nav),
         summary(r), rate_risk(r), deposits_section(r), plan(r), liquidity(r), capital_section(r), portfolios(r),
-        profitability_section(r),
+        profitability_section(r), accounts_section(r),
         budget_section(r),
         adhoc_section(r), history_section(r), peers_section(r), reconciliation(r), assumptions_section(r),
         "</main><footer>Generated %s by Keel. Every figure is computed from the input files; none is typed. Keel "
