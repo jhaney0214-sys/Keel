@@ -64,7 +64,7 @@ or `.xlsx`.
 | `loans.csv` | loan | `loan_id, product_code, rate_type` (F or V), `index, margin, reset_months, next_reset_date, rate_floor, rate_cap` (variable loans), `days_delinquent, origination_date, maturity_date` (blank for lines of credit), `current_balance, rate, amortization_months` (balloons); optional `member_id, branch` |
 | `certificates.csv` | certificate | `certificate_id, product_code, open_date, maturity_date, balance, rate`; optional `member_id, branch` |
 | `shares.csv` | product and balance tier | `product_code, tier_low, tier_high` (blank for no top), `accounts, balance, rate` |
-| `investments.csv` | security | `security_id, type` (mapped on the investments sheet), `description, maturity_date, book_value, book_yield, next_call_date` (callables), `wam_months` (MBS and CMOs) |
+| `investments.csv` | security | `security_id, type` (mapped on the investments sheet), `description, maturity_date, book_value, book_yield, next_call_date` (callables), `wam_months` (pass-throughs); optional `amortization` (bullet, level, callable or none) |
 | `borrowings.csv` | borrowing | `borrowing_id, lender` (mapped on the borrowings sheet), `balance, rate, maturity_date`; optional `type` |
 
 How a security pays is its `amortization` column when there is one;
