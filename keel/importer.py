@@ -146,6 +146,23 @@ class Pool(object):
             loan_age=int(round(self.age_x / b)) if self.aged else None)
 
 
+def _mapped(mapping, section, code, where):
+    """The Keel product for a core code, or the section's "*" catch-all; an
+    unmapped code is refused with the file and row, never a bare KeyError."""
+    product = mapping.get(section, {}).get(code) or mapping.get(section, {}).get("*")
+    if not product:
+        raise InputError("%s: code %r is not on the %s sheet of the product map (add it, or a * row to catch "
+                         "every other code)" % (where, code, section))
+    return product
+
+
+#: Investment behaviour when investments.csv has no amortization column:
+#: stock-like codes have no maturity, pass-throughs amortize.
+NO_MATURITY_TYPES = ("FHLBSTOCK", "CUSO")
+AMORTIZING_TYPES = ("MBS", "CMO")
+INVESTMENT_KINDS = ("bullet", "level", "callable", "none")
+
+
 def _account(kind, account_id, product, key, balance, rate, row, **extra):
     """One detail row as the account-profitability view reads it. `key` is
     the pool it joined (a position id once the pools are numbered)."""
@@ -273,7 +290,7 @@ def import_folder(folder, as_of):
     share_totals = {}
     tiers = {}
     for i, r in enumerate(shares, 1):
-        product = mapping["shares"][r["product_code"]]
+        product = _mapped(mapping, "shares", r["product_code"], "shares.csv line %d" % (i + 1))
         balance = _num(r["balance"])
         tiers.setdefault(r["product_code"], []).append((_num(r["tier_low"]), _num(r["tier_high"], 0.0),
                                                         "share%03d" % i, _num(r["rate"]), product))
@@ -298,21 +315,39 @@ def import_folder(folder, as_of):
     # ---- investments
     securities = _read(data, "investments.csv")
     rows["investments"] = len(securities)
-    for r in securities:
-        product = mapping["investments"][r["type"]]
+    for n, r in enumerate(securities, 2):
+        where = "investments.csv line %d" % n
+        code = r.get("type", "")
+        product = _mapped(mapping, "investments", code, where)
         book, rate = _num(r["book_value"]), _num(r["book_yield"])
-        maturity = _date(r["maturity_date"])
+        maturity = _date(r.get("maturity_date"))
         term = max(1, months_between(as_of, maturity)) if maturity else 0
-        if r["type"] in ("FHLBSTOCK", "CUSO"):
-            kind, rate_type = "none", "fixed" if rate else "none"
-        elif r["type"] in ("MBS", "CMO"):
-            kind, rate_type = "level", "fixed"
-            term = int(_num(r["wam_months"], term)) or term
-        elif r["next_call_date"]:
-            kind, rate_type = "callable", "fixed"
-        else:
-            kind, rate_type = "bullet", "fixed"
-        call = max(1, months_between(as_of, _date(r["next_call_date"]))) if r["next_call_date"] else 0
+        wam = int(_num(r.get("wam_months"), 0))
+        call_date = r.get("next_call_date") or ""
+        # An amortization column says how it pays; without one, the samples'
+        # type codes decide, then the columns: a weighted-average maturity
+        # means a pass-through that amortizes, a call date a callable, no
+        # maturity at all stock or an equity stake. Found when a core's own
+        # codes ("FNMA POOL") turned every mortgage pool into a bullet.
+        kind = (r.get("amortization") or "").strip().lower()
+        if kind and kind not in INVESTMENT_KINDS:
+            raise InputError("%s: amortization must be one of %s, not %r" % (where, ", ".join(INVESTMENT_KINDS),
+                                                                              kind))
+        if not kind:
+            if code in NO_MATURITY_TYPES or (not maturity and not wam):
+                kind = "none"
+            elif code in AMORTIZING_TYPES or wam:
+                kind = "level"
+            elif call_date:
+                kind = "callable"
+            else:
+                kind = "bullet"
+        rate_type = ("fixed" if rate else "none") if kind == "none" else "fixed"
+        if kind == "level":
+            term = wam or term
+        if kind != "none" and term <= 0:
+            raise InputError("%s: security %s needs a maturity_date or wam_months" % (where, r["security_id"]))
+        call = max(1, months_between(as_of, _date(call_date))) if call_date else 0
         positions.append(Position(
             id=r["security_id"], name=r["description"], product=product, side="asset", balance=book,
             rate=rate / 100.0, rate_type=rate_type, term_months=term, amortization=kind, call_months=call))
@@ -321,10 +356,11 @@ def import_folder(folder, as_of):
     # ---- borrowings
     borrowings = _read(data, "borrowings.csv", required=False)
     rows["borrowings"] = len(borrowings)
-    for r in borrowings:
+    for n, r in enumerate(borrowings, 2):
         positions.append(Position(
-            id=r["borrowing_id"], name="%s %s" % (r["lender"], r["type"]),
-            product=mapping["borrowings"][r["lender"]], side="liability", balance=_num(r["balance"]),
+            id=r["borrowing_id"], name=("%s %s" % (r["lender"], r.get("type") or "")).strip(),
+            product=_mapped(mapping, "borrowings", r["lender"], "borrowings.csv line %d" % n), side="liability",
+            balance=_num(r["balance"]),
             rate=_num(r["rate"]) / 100.0, rate_type="fixed",
             term_months=max(1, months_between(as_of, _date(r["maturity_date"]))), amortization="bullet"))
 
@@ -341,20 +377,46 @@ def import_folder(folder, as_of):
         balance = value if side == "asset" else -value
         positions.append(Position(id="gl_" + key, name=key.replace("_", " "), product=product, side=side,
                                   balance=balance, rate=0.0, rate_type="none", amortization="none"))
-    ties = _ties(gl, loans, certs, shares, securities, borrowings)
+    ties = _ties(gl, loans, certs, shares, securities, borrowings, accounts)
     return Imported(positions=positions, ties=ties, summaries=summaries, rows=rows, accounts=detail)
 
 
-def _ties(gl, loans, certs, shares, securities, borrowings):
-    """Detail against ledger, line by line. The account numbers are the
-    synthetic samples' own chart; a real credit union maps its own."""
-    return [Tie("Loans (1200)", sum(_num(r["current_balance"]) for r in loans), abs(gl.get("1200", 0.0))),
-            Tie("Investments at book (1100)", sum(_num(r["book_value"]) for r in securities),
-                abs(gl.get("1100", 0.0))),
-            Tie("Share certificates (3500)", sum(_num(r["balance"]) for r in certs), abs(gl.get("3500", 0.0))),
-            Tie("Non-maturity shares (3000-3090)", sum(_num(r["balance"]) for r in shares),
-                sum(abs(v) for a, v in gl.items() if a.startswith("30"))),
-            Tie("Borrowings (2000)", sum(_num(r["balance"]) for r in borrowings), abs(gl.get("2000", 0.0)))]
+#: The ledger accounts each detail file ties to, when the product map's gl
+#: section does not name them: the synthetic samples' chart. A real
+#: institution maps its own, as a comma-separated list; "30*" is every
+#: account starting 30.
+TIE_ACCOUNTS = {"loans": "1200", "investments": "1100", "certificates": "3500", "shares": "30*",
+                "borrowings": "2000"}
+
+
+def _ledger(gl, spec):
+    """The sum of the absolute balances of the accounts `spec` names."""
+    total = 0.0
+    for part in str(spec).split(","):
+        part = part.strip()
+        if part.endswith("*"):
+            total += sum(abs(v) for a, v in gl.items() if a.startswith(part[:-1]))
+        elif part:
+            total += abs(gl.get(part, 0.0))
+    return total
+
+
+def _ties(gl, loans, certs, shares, securities, borrowings, accounts=None):
+    """Detail against ledger, line by line, on the accounts the product map's
+    gl section names (loans, investments, certificates, shares, borrowings),
+    or the samples' chart where it names none."""
+    accounts = accounts or {}
+    spec = {k: accounts.get(k, v) for k, v in TIE_ACCOUNTS.items()}
+    label = lambda name, key: "%s (%s)" % (name, spec[key])  # noqa: E731
+    return [Tie(label("Loans", "loans"), sum(_num(r["current_balance"]) for r in loans), _ledger(gl, spec["loans"])),
+            Tie(label("Investments at book", "investments"), sum(_num(r["book_value"]) for r in securities),
+                _ledger(gl, spec["investments"])),
+            Tie(label("Share certificates", "certificates"), sum(_num(r["balance"]) for r in certs),
+                _ledger(gl, spec["certificates"])),
+            Tie(label("Non-maturity shares", "shares"), sum(_num(r["balance"]) for r in shares),
+                _ledger(gl, spec["shares"])),
+            Tie(label("Borrowings", "borrowings"), sum(_num(r["balance"]) for r in borrowings),
+                _ledger(gl, spec["borrowings"]))]
 
 
 def write_positions(positions, path):

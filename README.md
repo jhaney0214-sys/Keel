@@ -100,6 +100,15 @@ is written for the model validator.
 
 ## Try it
 
+**Bringing your own institution? Read [START-HERE.md](START-HERE.md).**
+`python -m keel init "<folder>"` makes a starter folder with every input
+file, whose example rows already run and tie, to replace with your own
+export one file at a time. On Windows, double-click `windows\New Keel
+folder.cmd` to do the same, or drag a folder onto `windows\Keel report.cmd`
+or `windows\Keel app.cmd` to run the report or open the app. `pip install .`
+gives a `keel` command in place of `python -m keel`; nothing else is
+installed, since Keel uses only the standard library.
+
 ```bash
 python tools/make_samples.py                 # three synthetic credit unions, in about two seconds
 python -m keel run examples/mid-cu           # -> examples/mid-cu/report/report.html
@@ -452,7 +461,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 191 tests
+python -m unittest discover -s tests      # 198 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,

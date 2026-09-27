@@ -66,6 +66,9 @@ def main(argv=None):
     cr.add_argument("--run", action="store_true", help="run the report straight after building the folder")
     cr.add_argument("--prior", default=None, help="the previous quarter's zip: calibrate interest on the latest "
                                                   "quarter and take loan growth from it")
+    ini = sub.add_parser("init", help="a starter folder with every input file, ready to fill with your own data")
+    ini.add_argument("folder")
+    ini.add_argument("--bank", action="store_true", help="a bank rather than a credit union")
     val = sub.add_parser("validate", help="score Keel's one-quarter forecasts against NCUA call reports")
     val.add_argument("zips", nargs="+", help="two or more consecutive quarterly call report zips, oldest first")
     val.add_argument("--out", default=os.path.join("private", "validation"),
@@ -86,6 +89,16 @@ def main(argv=None):
             print("input error: %s" % error, file=sys.stderr)
             return 2
         print("%s -> %s" % (args.source, args.target))
+        return 0
+    if args.command == "init":
+        from keel import starter
+        try:
+            starter.write(args.folder, bank=args.bank)
+        except model.InputError as error:
+            print("input error: %s" % error, file=sys.stderr)
+            return 2
+        print("starter folder -> %s" % args.folder)
+        print("Run it now:  python -m keel run \"%s\"   then read START-HERE.txt in it." % args.folder)
         return 0
     if args.command == "validate":
         from keel import validate

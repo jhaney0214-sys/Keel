@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "keel-alm"
+version = "0.1.0"
+description = "ALM, FP&A, liquidity, profitability and pricing for credit unions and banks, from one projection"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+keel = "keel.__main__:main"
+
+[tool.setuptools]
+packages = ["keel"]
