@@ -22,7 +22,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from keel import (callreport, engine, history, measures, model, results, sensitivity, settings,  # noqa: E402
-                  xlsx)
+                  validate, xlsx)
 from keel.curve import Curve, RatePath, Scenario  # noqa: E402
 
 SAMPLE = os.path.join(ROOT, "examples", "sample-cu")
@@ -211,9 +211,11 @@ class History(unittest.TestCase):
 
 # --------------------------------------------------------------- the call report
 
-def ncua_zip(path):
+def ncua_zip(path, cycle="6/30/2026", ytd=1.0, size=1.0):
     """Three credit unions in NCUA's layout: FOICU, two FS220 tables (one
-    with a mixed-case header, as FS220N really has), June cycle."""
+    with a mixed-case header, as FS220N really has), June cycle. `ytd`
+    scales the year-to-date income and expense, `size` the balances, so a
+    March cycle can be made beside it."""
     foicu = ['"CU_NUMBER","CYCLE_DATE","CU_NAME","CITY","STATE","Peer_Group"']
     fs220 = ['"CU_NUMBER","CYCLE_DATE","ACCT_010","ACCT_AS0009","ACCT_AS0013","ACCT_025B","ACCT_385","ACCT_523",'
              '"ACCT_RL0002","ACCT_563A","ACCT_018","ACCT_657","ACCT_908C","ACCT_908A","ACCT_110","ACCT_120",'
@@ -222,15 +224,18 @@ def ncua_zip(path):
     fs220n = ['"CU_Number","CYCLE_DATE","ACCT_AS0048","ACCT_AS0036"']
     cus = (("1", "ALPHA", 100e6, 1.0), ("2", "BETA", 120e6, 1.2), ("3", "GAMMA", 90e6, 0.9))
     for cu, name, assets, f in cus:
-        foicu.append('%s,6/30/2026 0:00:00,"%s","TOWN","TX",5' % (cu, name))
+        foicu.append('%s,%s 0:00:00,"%s","TOWN","TX",5' % (cu, cycle, name))
+        assets *= size
+        f_income, f = f * ytd, f * size
         loans, cash, sec = 60e6 * f, 10e6 * f, 25e6 * f
         allowance, other = 0.6e6 * f, assets - (cash + sec + loans - 0.6e6 * f)
         shares, borrowed = 85e6 * f, 3e6 * f
+        fi = f_income
         fs220.append(",".join(str(x) for x in (
-            cu, "6/30/2026 0:00:00", assets, cash, sec, loans, 20e6 * f, 525, 40e6 * f, 600, shares, 50e6 * f,
-            35e6 * f, 30e6 * f, 1.6e6 * f, 0.5e6 * f, 0.9e6 * f, 2.1e6 * f, 0.95e6 * f, 0.6e6 * f, 1.4e6 * f,
-            0.3e6 * f, shares + borrowed, 10e6 * f, 25e6 * f, borrowed, borrowed, 0.07e6 * f)))
-        fs220n.append("%s,6/30/2026 0:00:00,%s,%s" % (cu, allowance, other))
+            cu, cycle + " 0:00:00", assets, cash, sec, loans, 20e6 * f, 525, 40e6 * f, 600, shares, 50e6 * f,
+            35e6 * f, 30e6 * f, 1.6e6 * fi, 0.5e6 * fi, 0.9e6 * fi, 2.1e6 * fi, 0.95e6 * fi, 0.6e6 * fi,
+            1.4e6 * fi, 0.3e6 * fi, shares + borrowed, 10e6 * f, 25e6 * f, borrowed, borrowed, 0.07e6 * fi)))
+        fs220n.append("%s,%s 0:00:00,%s,%s" % (cu, cycle, allowance, other))
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("FOICU.txt", "\n".join(foicu))
         z.writestr("FS220.txt", "\n".join(fs220))
@@ -251,14 +256,14 @@ class CallReport(unittest.TestCase):
         shutil.rmtree(cls.tmp)
 
     def test_the_cycle_and_its_year_to_date_months(self):
-        self.assertEqual((self.report.as_of, self.report.months), ("2026-06-30", 6))
-        self.assertAlmostEqual(self.report.annual("1", "net_income"), 0.6e6)
+        self.assertEqual((self.report.as_of, self.report.months, self.report.days), ("2026-06-30", 6, 181))
+        self.assertAlmostEqual(self.report.annual("1", "net_income"), 0.3e6 * 365 / 181)   # by days, not months
 
     def test_every_total_and_reported_income_ties(self):
         rows, raw, ties = callreport.build(self.report, "2")
         for key in ("assets", "liabilities"):
             self.assertAlmostEqual(ties[key][0], ties[key][1], delta=0.5)
-        for key in ("loan_interest", "dividends"):
+        for key in ("loan_interest", "dividends", "investment_income"):
             self.assertAlmostEqual(ties[key][1] / ties[key][0], 1.0, places=3)
 
     def test_the_folder_runs(self):
@@ -287,6 +292,51 @@ class CallReport(unittest.TestCase):
             z.writestr("x.txt", "nothing")
         with self.assertRaises(model.InputError):
             callreport.CallReport(bad)
+
+
+class Validation(unittest.TestCase):
+    """A March and a June cycle of the same three credit unions: June's
+    year-to-date income is 2.1 times March's and its balances 2% larger."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.march = os.path.join(cls.tmp, "call-report-data-2026-03.zip")
+        cls.june = os.path.join(cls.tmp, "call-report-data-2026-06.zip")
+        ncua_zip(cls.march, "3/31/2026", ytd=1 / 2.1, size=1 / 1.02)
+        ncua_zip(cls.june)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp)
+
+    def test_the_latest_quarter_is_the_difference_at_an_annual_rate(self):
+        march, june = callreport.CallReport(self.march), callreport.CallReport(self.june)
+        self.assertEqual(march.days, 90)
+        expected = (0.3e6 - 0.3e6 / 2.1) * 365 / 91
+        self.assertAlmostEqual(june.latest("1", "net_income", march), expected, places=4)
+
+    def test_cash_earns_only_what_the_reported_income_supports(self):
+        june = callreport.CallReport(self.june)
+        rows, _, ties = callreport.build(june, "1")
+        earned, built = ties["investment_income"]
+        self.assertAlmostEqual(built / earned, 1.0, places=3)        # the yield is rounded to 3 places
+        cash = {r["product"]: r["balance"] for r in rows if r["product"].startswith("cash")}
+        self.assertAlmostEqual(sum(cash.values()), 10e6, delta=1)
+
+    def test_a_quarter_is_scored_against_keel_and_the_naive_forecast(self):
+        r = validate.run(self.march, self.june)
+        self.assertEqual((r["months"], len(r["rows"])), (3, 3))
+        row = next(x for x in r["rows"] if x["cu"] == "1")
+        self.assertAlmostEqual(row["nii_actual"], (2.1e6 - 0.95e6) * (1 - 1 / 2.1), places=2)
+        self.assertAlmostEqual(row["assets_naive"], row["assets"])
+        self.assertIn("Quarter NII", validate.text(r))
+        s = r["summary"]["all"]["nii"]
+        self.assertIn("keel_closer", s)
+
+    def test_the_chain_needs_later_reports(self):
+        with self.assertRaises(model.InputError):
+            validate.run(self.june, self.march)
 
 
 if __name__ == "__main__":

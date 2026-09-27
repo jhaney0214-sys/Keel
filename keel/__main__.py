@@ -64,6 +64,14 @@ def main(argv=None):
     cr.add_argument("--curve", default=None, help="a JSON file of {tenor months: rate percent}, when Keel does "
                                                   "not have the cycle date's Treasury curve")
     cr.add_argument("--run", action="store_true", help="run the report straight after building the folder")
+    cr.add_argument("--prior", default=None, help="the previous quarter's zip: calibrate interest on the latest "
+                                                  "quarter and take loan growth from it")
+    val = sub.add_parser("validate", help="score Keel's one-quarter forecasts against NCUA call reports")
+    val.add_argument("zips", nargs="+", help="two or more consecutive quarterly call report zips, oldest first")
+    val.add_argument("--out", default=os.path.join("private", "validation"),
+                     help="where the per-credit-union rows and the summary go (keep it git-ignored)")
+    val.add_argument("--base-case", default="flat", help="flat, forward or forecast")
+    val.add_argument("--ytd", action="store_true", help="calibrate on the year to date, not the latest quarter")
     srv = sub.add_parser("serve", help="what-if, pricing, new-product and explore pages, on this computer only")
     srv.add_argument("folder")
     srv.add_argument("--port", type=int, default=8750)
@@ -78,6 +86,22 @@ def main(argv=None):
             print("input error: %s" % error, file=sys.stderr)
             return 2
         print("%s -> %s" % (args.source, args.target))
+        return 0
+    if args.command == "validate":
+        from keel import validate
+        if len(args.zips) < 2:
+            print("give at least two call report zips, oldest first", file=sys.stderr)
+            return 2
+        try:
+            result = validate.run_chain(args.zips, base_case=args.base_case, latest=not args.ytd)
+        except model.InputError as error:
+            print("input error: %s" % error, file=sys.stderr)
+            return 2
+        validate.write(result, args.out)
+        with open(os.path.join(args.out, "summary.txt"), "w", encoding="utf-8") as handle:
+            handle.write(validate.chain_text(result) + "\n")
+        print(validate.chain_text(result))
+        print("rows and summary -> %s" % args.out)
         return 0
     if args.command in ("price", "newproduct", "swap", "special", "query", "callreport"):
         try:
@@ -185,7 +209,8 @@ def run_callreport(args):
     if args.curve:
         with open(args.curve, encoding="utf-8") as handle:
             curve = {float(k): float(v) for k, v in json.load(handle).items()}
-    rows, raw, ties = callreport.build(report_data, args.cu, curve)
+    prior = callreport.CallReport(args.prior) if args.prior else None
+    rows, raw, ties = callreport.build(report_data, args.cu, curve, prior=prior)
     out = args.out or os.path.join("examples", "cu-%s" % args.cu)
     callreport.write(out, rows, raw, callreport.peers(report_data, args.cu))
     print("%s -> %s (%d positions)" % (report_data.name(args.cu), out, len(rows)))

@@ -222,8 +222,23 @@ the interest and dividends it reported; and Keel's default behaviour,
 terms and costs, which the notes say plainly. `peers.json` holds twelve
 ratios against its NCUA peer group, and the report shows them. It is a
 first look from public data, not a substitute for the credit union's own
-files. Keel knows the Treasury curve for 2026-06-30; for another cycle, pass
-`--curve` a JSON of `{tenor months: rate}`.
+files. Keel knows the Treasury curve for each quarter-end from March 2025
+to June 2026; for another cycle, pass `--curve` a JSON of `{tenor months:
+rate}`. Pass `--prior` the previous quarter's zip to calibrate interest on
+the latest quarter and take loan growth from it.
+
+**Validated out of sample.** `keel validate` builds every credit union from
+one quarter's report and scores its three-month forecast against the next:
+
+```bash
+python -m keel validate call-report-data-2025-03.zip call-report-data-2025-06.zip ... call-report-data-2026-06.zip
+```
+
+Over five quarters and 21,866 credit-union quarters, Keel's quarterly NII
+has a median error of 3.2% (bias -1.1%) against 3.5% for repeating last
+quarter, and is closer for 78% of credit unions over $1 billion. Balances
+and net worth change one quarter out are no better than "nothing changes".
+METHODOLOGY.md has the full table and what it found.
 
 ## Rate forecasts and the budget
 
@@ -437,7 +452,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 187 tests
+python -m unittest discover -s tests      # 191 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,

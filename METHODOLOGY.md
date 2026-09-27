@@ -533,10 +533,69 @@ one of the 4,299 ties to within a cent. The call report's loan rates are the
 most common rate by type, so they are scaled together to the reported loan
 interest; share rates are not reported, so typical relative rates are
 scaled to the reported dividends; charge-off rates are scaled to reported
-net charge-offs. Year-to-date income is annualized by 12 over the cycle's
-months. On a random 25 credit unions over $20M, the model's year-one NII ran
-from 9% below to 13% above their reported, annualized NII, with a median
-about 4% above.
+net charge-offs. Year-to-date income is annualized by days (365 over the
+days the cycle covers; the first quarter has 90). Securities and other
+investments (deposits in other institutions, FHLB stock, CUSOs) together
+fill the call report's investment maturity bands. Because the plan pays the
+short rate on cash, cash and investments are calibrated together to the
+investment income reported: at a blended yield under the short rate only
+that share of the cash earns and the rest is kept as liquid, non-earning
+cash; over it, all the cash earns and the securities the remainder. With
+`--prior`, the previous quarter's report in the same year, interest income
+and expense are the latest quarter's at an annual rate (a year-to-date
+average lags when margins move), and loan growth is the credit union's own
+over that quarter; fees, operating expense and charge-offs stay year to date,
+because a single quarter of them is lumpy.
+
+## Validation against NCUA call reports
+
+`keel validate` (`keel/validate.py`) builds every credit union from one
+quarter's call report, runs the plan forward three months, and scores it
+against the next quarter's report: net interest income for the quarter (the
+later year-to-date less the earlier, with Keel's quarter set to the
+quarter's actual days), total assets, loans, shares, and the change in net
+worth (in basis points of assets). Each is compared with a naive forecast:
+the latest quarter's NII and net income repeated and balances unchanged.
+
+Over the five quarters from March 2025 to June 2026 (21,866 credit-union
+quarters, every federally insured credit union, calibrated on the latest
+quarter), median absolute error and median signed error, in percent:
+
+| | Keel | Naive | Keel closer |
+|---|---|---|---|
+| Quarter NII | 3.19, bias -1.12 | 3.47, bias -1.77 | 63% |
+| Total assets | 1.42, bias +0.19 | 1.49, bias -0.51 | 54% |
+| Loans | 1.98, bias +0.41 | 2.02, bias -0.14 | 51% |
+| Shares | 1.63, bias +0.21 | 1.65, bias -0.35 | 51% |
+| Net worth change (bp of assets) | 8.63, bias +0.01 | 8.26, bias -0.49 | 50% |
+
+By size, Keel is closer on NII for 78% of credit unions over $1 billion,
+70% of those from $100 million to $1 billion, 59% from $10 million to $100
+million and 53% under $10 million, whose quarters are noisy enough that
+nothing forecasts them well. What it says:
+
+- **NII is where the model earns its keep**, and more so the larger the
+  institution. It still under-forecasts slightly (about 1%) in every
+  quarter of a period when margins were widening: interest expense is
+  forecast to within a fraction of a percent; the miss is interest income,
+  which grew faster than new business at default spreads replaces the book.
+- **Balances are a coin toss one quarter out**, with or without a model:
+  share growth is seasonal (tax refunds in the first quarter), which a
+  model on annual growth rates does not see; pooled over the year its bias
+  is near zero.
+- **Net worth change is no better than repeating last quarter**, because it
+  is dominated by fees, expenses and provisions, which the plan carries as
+  flat annual rates.
+
+The validation found and fixed four calibration faults, each named in the
+code where it was fixed: cash earned the short rate on top of an investment
+yield already spread over it (the smallest, cash-heavy credit unions' NII
+came out 7-9% high); other investments were left out of the earning
+portfolio; income was annualized by months, not days; and a year-to-date
+average was used where the latest quarter was available. Pricing new loans
+at the call report's most common rates was tried and made no difference,
+so it was not kept. The per-credit-union rows name real institutions on
+default behaviour, so they are written to the git-ignored `private/`.
 
 ## Bank mode
 

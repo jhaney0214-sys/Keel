@@ -33,7 +33,7 @@ What the call report gives, and what it does not:
   knows it (below), otherwise one you give with `--curve`.
 
 Income statement figures are year to date; they are annualized by the
-number of months the cycle covers.
+days the cycle covers (the first quarter has 90).
 """
 
 import csv
@@ -47,6 +47,16 @@ from keel.model import InputError
 #: Daily Treasury par yield curve, percent, by tenor in months. From
 #: home.treasury.gov (Daily Treasury Par Yield Curve Rates), read 2026-09-27.
 TREASURY = {
+    "2025-03-31": {1: 4.38, 2: 4.35, 3: 4.32, 4: 4.31, 6: 4.23, 12: 4.03, 24: 3.89, 36: 3.89, 60: 3.96,
+                   84: 4.09, 120: 4.23, 240: 4.62, 360: 4.59},
+    "2025-06-30": {1: 4.28, 2: 4.45, 3: 4.41, 4: 4.36, 6: 4.29, 12: 3.96, 24: 3.72, 36: 3.68, 60: 3.79,
+                   84: 3.98, 120: 4.24, 240: 4.79, 360: 4.78},
+    "2025-09-30": {1: 4.2, 2: 4.15, 3: 4.02, 4: 3.98, 6: 3.83, 12: 3.68, 24: 3.6, 36: 3.61, 60: 3.74,
+                   84: 3.93, 120: 4.16, 240: 4.71, 360: 4.73},
+    "2025-12-31": {1: 3.74, 2: 3.67, 3: 3.67, 4: 3.63, 6: 3.59, 12: 3.48, 24: 3.47, 36: 3.55, 60: 3.73,
+                   84: 3.94, 120: 4.18, 240: 4.79, 360: 4.84},
+    "2026-03-31": {1: 3.74, 2: 3.72, 3: 3.70, 4: 3.70, 6: 3.72, 12: 3.68, 24: 3.79, 36: 3.81, 60: 3.92, 84: 4.11,
+                   120: 4.30, 240: 4.88, 360: 4.88},
     "2026-06-30": {1: 3.70, 2: 3.77, 3: 3.87, 4: 3.92, 6: 4.01, 12: 3.98, 24: 4.14, 36: 4.15, 60: 4.19, 84: 4.30,
                    120: 4.44, 240: 4.93, 360: 4.91},
 }
@@ -78,13 +88,14 @@ A = {
     "borrowing_interest": "ACCT_340", "interest_expense": "ACCT_350", "noninterest_income": "ACCT_117",
     "noninterest_expense": "ACCT_671", "net_income": "ACCT_661A", "charge_offs": "ACCT_550",
     "recoveries": "ACCT_551", "fhlb_line": "ACCT_LQ0040", "clf_capacity": "ACCT_LQ0060", "aoci": "ACCT_EQ0009",
+    "provision": "ACCT_300", "credit_loss_expense": "ACCT_IS0017",
 }
 
 #: Behaviour, costs and capital weights for a credit union's products, in
 #: assumptions.json units (percent). The same starting points the synthetic
 #: samples use; every one is marked as a default in the notes.
 PRODUCTS = {
-    "cash": {"risk_weight": 0.0}, "ncusif": {"risk_weight": 0.0}, "fixed_assets": {"risk_weight": 100.0},
+    "cash": {"risk_weight": 0.0}, "cash_noninterest": {"risk_weight": 0.0, "liquid": True}, "ncusif": {"risk_weight": 0.0}, "fixed_assets": {"risk_weight": 100.0},
     "other_assets": {"risk_weight": 100.0}, "other_investments": {"risk_weight": 100.0},
     "other_liabilities": {},
     "investments": {"new_term": 36, "new_amortization": "bullet", "spread": 0.15, "discount_spread": 0.15,
@@ -217,6 +228,9 @@ class CallReport(object):
         month, day, year = self.cycle.split(" ")[0].split("/")
         self.as_of = "%04d-%02d-%02d" % (int(year), int(month), int(day))
         self.months = int(month)          # months the year-to-date figures cover
+        import datetime
+        end = datetime.date(int(year), int(month), int(day))
+        self.days = (end - datetime.date(int(year), 1, 1)).days + 1   # days they cover
 
     @staticmethod
     def _rows(z, name):
@@ -229,7 +243,14 @@ class CallReport(object):
         return self.data.get(str(cu), {}).get(A[key], 0.0)
 
     def annual(self, cu, key):
-        return self.get(cu, key) * 12.0 / self.months
+        """A year-to-date figure at an annual rate, by days: the first quarter
+        has 90 days, not a quarter of 365, and income accrues daily."""
+        return self.get(cu, key) * 365.0 / self.days
+
+    def latest(self, cu, key, prior):
+        """The quarter since `prior` (a report earlier in the same year), at an annual rate."""
+        days = self.days - prior.days
+        return (self.get(cu, key) - prior.get(cu, key)) * 365.0 / days if days > 0 else self.annual(cu, key)
 
     def name(self, cu):
         row = self.names.get(str(cu), {})
@@ -248,9 +269,18 @@ class CallReport(object):
 
 # --------------------------------------------------------------- building a folder
 
-def build(report, cu, curve=None):
-    """(positions rows, assumptions dict, tie-out notes) for credit union `cu`."""
+def build(report, cu, curve=None, prior=None):
+    """(positions rows, assumptions dict, tie-out notes) for credit union `cu`.
+    With `prior`, the same year's earlier call report, income and expense are
+    the latest quarter's at an annual rate rather than the year to date's:
+    a year-to-date average lags when margins are moving."""
     cu = str(cu)
+    same_year = prior is not None and prior.as_of[:4] == report.as_of[:4] and str(cu) in prior.data
+    yearly = (lambda key: report.latest(cu, key, prior)) if same_year else (lambda key: report.annual(cu, key))
+    # Fees, expenses and charge-offs are lumpy quarter to quarter (one-off
+    # gains, bonuses, a single large charge-off): they stay year to date.
+    ytd = lambda key: report.annual(cu, key)  # noqa: E731
+    basis = "the latest quarter, annualized" if same_year else "year to date, annualized"
     if cu not in report.data:
         raise InputError("credit union %s is not in this call report" % cu)
     g = lambda key: report.get(cu, key)  # noqa: E731
@@ -276,6 +306,7 @@ def build(report, cu, curve=None):
     # ---- loans: each line at its most common rate, then all scaled to the reported interest
     loan_rows = []
     covered = 0.0
+    loan_rows_all = []
     for product, key, rate_key, term, amortization, extra in LOANS:
         balance = g(key)
         if balance <= 0:
@@ -290,7 +321,7 @@ def build(report, cu, curve=None):
     average = (sum(r[2] * r[3] for r in known) / sum(r[2] for r in known)) if known else 6.0
     for r in loan_rows:
         r[3] = r[3] or average
-    reported = report.annual(cu, "loan_interest") - report.annual(cu, "interest_refunded")
+    reported = yearly("loan_interest") - yearly("interest_refunded")
     implied = sum(r[2] * r[3] / 100.0 for r in loan_rows)
     loan_scale = reported / implied if implied and reported > 0 else 1.0
     for product, key, balance, rate, term, amortization, extra in loan_rows:
@@ -309,32 +340,52 @@ def build(report, cu, curve=None):
             kw["amort_months"] = extra["amort_months"]
         add("%s_%s" % (product, key), key.replace("_", " "), product, "asset", balance, round(rate, 3), kind,
             term, amortization, **kw)
+        loan_rows_all.append({"product": product, "side": "asset"})
     notes.append("Loan rates: the call report's most common rate for each loan type, scaled by %.3f so the "
-                 "portfolio earns the $%s a year of loan interest reported (year to date, annualized)." % (
-                     loan_scale, "{:,.0f}".format(reported)))
+                 "portfolio earns the $%s a year of loan interest reported (%s)." % (
+                     loan_scale, "{:,.0f}".format(reported), basis))
 
     # ---- investments and cash
     cash = g("cash")
-    investments = g("securities")
+    # Securities and other investments (deposits in other institutions,
+    # FHLB stock, CUSOs) together: the maturity bands cover both, and both
+    # earn the investment income reported. Found when credit unions holding
+    # only certificates at other institutions showed no investment income.
+    investments = g("securities") + g("other_investments")
     bands = [("inv_1", 6, "bullet", "investments"), ("inv_3", 24, "bullet", "investments"),
              ("inv_5", 48, "bullet", "investments"), ("inv_10", 90, "bullet", "investments"),
              ("inv_long", 300, "level", "mortgage_securities")]
     banded = sum(g(b[0]) for b in bands)
-    income = report.annual(cu, "investment_income")
+    income = yearly("investment_income")
     earning = cash + investments
-    inv_yield = 100.0 * income / earning if earning else 0.0
+    # The plan pays the short rate on cash, so cash and securities together
+    # must earn the investment income reported. At the blended yield y:
+    # when y is under the short rate, only y / short of the cash earns (the
+    # rest is vault cash and non-interest balances, kept liquid but earning
+    # nothing); when it is over, all the cash earns the short rate and the
+    # securities the rest. Found when the smallest, cash-heavy credit unions'
+    # NII came out 7-9% over what they reported.
+    short = curve[min(curve)] / 100.0
+    blended = income / earning if earning else 0.0
+    if short > 0 and blended <= short:
+        earning_cash = cash * blended / short
+        inv_yield = 100.0 * blended
+    else:
+        earning_cash = cash
+        inv_yield = 100.0 * (income - cash * short) / investments if investments else 100.0 * blended
     scale = investments / banded if banded else 0.0
-    add("cash", "Cash and other deposits", "cash", "asset", cash, 0.0, "none")
+    add("cash", "Cash and other deposits, earning", "cash", "asset", earning_cash, 0.0, "none")
+    add("cash_noninterest", "Cash on hand and non-interest balances", "cash_noninterest", "asset",
+        cash - earning_cash, 0.0, "none")
     if banded:
         for key, term, amortization, product in bands:
             add("inv_" + key, "Investments, %s" % key.replace("inv_", "maturing band "), product, "asset",
                 g(key) * scale, round(inv_yield, 3), "fixed", term, amortization)
     elif investments:
         add("inv", "Investments", "investments", "asset", investments, round(inv_yield, 3), "fixed", 24, "bullet")
-    add("other_inv", "Other investments (FHLB stock, CUSOs, other)", "other_investments", "asset",
-        g("other_investments"), 0.0, "none")
-    notes.append("Investment yield %.2f%%: investment income over cash and securities, annualized; securities "
-                 "placed in the call report's maturity bands." % inv_yield)
+    notes.append("Investment yield %.2f%% on securities, with $%s of the cash earning the %.2f%% short rate, so "
+                 "together they earn the investment income reported (%s); securities placed in the call "
+                 "report's maturity bands." % (inv_yield, "{:,.0f}".format(earning_cash), 100 * short, basis))
 
     # ---- other assets, the allowance, and whatever does not tie
     add("fixed", "Land, buildings and other fixed assets", "fixed_assets", "asset", g("land") + g("fixed"), 0.0, "none")
@@ -371,7 +422,7 @@ def build(report, cu, curve=None):
     listed = sum(r[1] for r in share_rows)
     if shares - listed > 1000:
         share_rows.append(("regular_shares", shares - listed, "Other shares and deposits", 0, "nonmaturity"))
-    dividends = report.annual(cu, "dividends") + report.annual(cu, "deposit_interest")
+    dividends = yearly("dividends") + yearly("deposit_interest")
     weighted = sum(balance * SHARE_WEIGHTS[p] / 100.0 for p, balance, _, _, _ in share_rows)
     share_scale = dividends / weighted if weighted else 1.0
     for i, (product, balance, name, term, amortization) in enumerate(share_rows):
@@ -386,7 +437,7 @@ def build(report, cu, curve=None):
 
     # ---- borrowings
     borrowed = g("borrowings")
-    cost = report.annual(cu, "borrowing_interest")
+    cost = yearly("borrowing_interest")
     rate = 100.0 * cost / borrowed if borrowed else 0.0
     bands = [(g("borrow_1"), 6), (g("borrow_3"), 24), (g("borrow_long"), 48)]
     banded = sum(b for b, _ in bands)
@@ -403,7 +454,21 @@ def build(report, cu, curve=None):
 
     # ---- the settings
     products = {k: dict(v) for k, v in PRODUCTS.items() if any(r["product"] == k for r in rows)}
-    net_charge_offs = report.annual(cu, "charge_offs") - report.annual(cu, "recoveries")
+    if same_year or (prior is not None and str(cu) in prior.data):
+        # The credit union's own loan growth over the latest quarter,
+        # annualized, in place of Keel's defaults, which assume every credit
+        # union grows: over five quarters of call reports they over-forecast
+        # loans at credit unions under $100M, many of which are shrinking.
+        before = prior.get(cu, "loans")
+        days = (report.days - prior.days) if same_year else report.days + 365 - prior.days
+        if before > 0 and days > 0:
+            growth = 100.0 * ((g("loans") / before) ** (365.0 / days) - 1.0)
+            growth = round(max(-20.0, min(30.0, growth)), 2)
+            for name, spec in products.items():
+                if any(r["product"] == name and r["side"] == "asset" for r in loan_rows_all) and "growth" in spec:
+                    spec["growth"] = growth
+            notes.append("Loan growth %.2f%% a year: this credit union's own over the latest quarter." % growth)
+    net_charge_offs = ytd("charge_offs") - ytd("recoveries")
     modeled = sum(r["balance"] * products[r["product"]].get("charge_off", 0.0) / 100.0 for r in rows
                   if r["side"] == "asset" and r["balance"] > 0)
     if modeled > 0 and net_charge_offs > 0:
@@ -434,8 +499,8 @@ def build(report, cu, curve=None):
         "indexes": {"PRIME": {"tenor_months": 1, "spread": 3.00}, "SOFR": {"tenor_months": 1, "spread": 0.0},
                     "TSY_1Y": {"tenor_months": 12, "spread": 0.0}},
         "rate_floor": 0.0, "short_tenor_months": 1, "horizon_months": 60, "nev_max_months": 360,
-        "fee_income": round(report.annual(cu, "noninterest_income"), -3),
-        "operating_expense": round(report.annual(cu, "noninterest_expense"), -3), "expense_growth": 3.0,
+        "fee_income": round(ytd("noninterest_income"), -3),
+        "operating_expense": round(ytd("noninterest_expense"), -3), "expense_growth": 3.0,
         "cash_minimum": round(min(cash, assets * 0.02), -3), "overnight_spread": 0.25,
         "products": products,
         "extra_scenarios": [{"name": "ramp +200", "shock_bp": 200, "ramp_months": 12},
@@ -443,6 +508,9 @@ def build(report, cu, curve=None):
         "liquidity": {"stress_months": 3, "contingent": capacity},
     }
     ties = {"assets": (assets, sum(r["balance"] for r in rows if r["side"] == "asset")),
+            "investment_income": (income, sum(r["balance"] * (short if r["product"] == "cash" else r["rate"] / 100.0)
+                                              for r in rows if r["product"] in
+                                              ("cash", "investments", "mortgage_securities"))),
             "liabilities": (liabilities, sum(r["balance"] for r in rows if r["side"] == "liability")),
             "loan_interest": (reported, sum(r["balance"] * r["rate"] / 100.0 for r in rows
                                             if r["side"] == "asset" and r["product"] not in
