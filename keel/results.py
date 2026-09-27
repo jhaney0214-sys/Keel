@@ -159,7 +159,11 @@ def compute(positions, a, name, imported=None, folder=None, assumption_tests=Non
     variance = None
     if folder:
         actuals = budget_module.read_actuals(folder, plan_budget["labels"],
-                                             [p["product"] for p in plan_budget["products"]])
+                                             {p["product"]: p["side"] for p in plan_budget["products"]},
+                                             a.fiscal_year_start)
+        from keel import ledger
+        if ledger.present(folder):
+            checks.append(ledger_tie(folder, positions, a))
         if actuals:
             variance = budget_module.variance(plan_budget, actuals)
 
@@ -436,3 +440,23 @@ def findings(r):
         if not failed else "%d of %d checks FAIL; read the reconciliation before relying on anything here."
         % (len(failed), len(r["checks"]))))
     return out
+
+
+def ledger_tie(folder, positions, a):
+    """The trial balance's month-end at the analysis date against the positions, product by product."""
+    from keel import ledger
+    sides, book = {}, {}
+    for p in positions:
+        sides[p.product] = p.side
+        book[p.product] = book.get(p.product, 0.0) + p.balance
+    name = "The trial balance at the analysis date ties to the positions"
+    ends = ledger.month_ends(folder, sides, a.as_of[:7])
+    if not ends:
+        return measures.Check(name, True, "the trial balance has no %s month-end balances to tie" % a.as_of[:7])
+    gaps = sorted(((abs(v - book.get(k, 0.0)), k, v) for k, v in ends.items()), reverse=True)
+    worst, product, value = gaps[0]
+    ok = all(gap <= max(1.0, 0.005 * abs(book.get(k, 0.0))) for gap, k, _ in gaps)
+    if worst < 1.0:
+        return measures.Check(name, True, "all %d products tie to the dollar" % len(gaps))
+    return measures.Check(name, ok, "%d products; largest gap %s, $%s (ledger $%s, positions $%s)" % (
+        len(gaps), product, "{:,.0f}".format(worst), "{:,.0f}".format(value), "{:,.0f}".format(book.get(product, 0.0))))

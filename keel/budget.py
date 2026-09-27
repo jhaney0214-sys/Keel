@@ -6,7 +6,9 @@ its yield; and the income statement by month. It comes from the same
 projection as the rate-risk and liquidity numbers, so the budget ALCO
 approves is the one it stress-tests.
 
-Put `actuals.csv` (or .xlsx) in the folder and the report compares:
+Put `actuals.csv` (or .xlsx) in the folder, or the general ledger's monthly
+trial balance with a map of its accounts (see keel/ledger.py), and the
+report compares:
 
     month,line,average_balance,amount
     2026-07,used_auto,88500000,512000          interest on a product
@@ -78,16 +80,35 @@ def build(positions, a, run, months=12):
             "lines": lines, "drivers": drivers}
 
 
-def read_actuals(folder, labels, products):
-    """{(month, line): (average_balance or None, amount)} from actuals.csv/.xlsx, or None."""
-    path = tables.find(folder, "actuals", required=False)
+def actual_rows(folder, sides, fiscal_year_start=1):
+    """(source file name, [(where, row)]) from actuals.csv/.xlsx or the trial
+    balance, or (None, []). Both at once is refused rather than guessed between."""
+    from keel import ledger
+    path = tables.find(folder, "actuals", required=False) if folder else None
+    if ledger.present(folder):
+        if path:
+            raise InputError("both %s and a trial_balance are in %s; keep one source of actuals" % (
+                os.path.basename(path), folder))
+        rows = ledger.read(folder, sides, fiscal_year_start)
+        return "trial_balance", [("trial balance, %s %s" % (r["month"], r["line"]), r) for r in rows]
     if path is None:
+        return None, []
+    return os.path.basename(path), [("%s line %d" % (os.path.basename(path), n), row)
+                                    for n, row in enumerate(tables.read_table(path), 2)]
+
+
+def read_actuals(folder, labels, products, fiscal_year_start=1):
+    """{(month, line): (average_balance or None, amount)} from actuals.csv/.xlsx
+    or the trial balance, or None. `products` is {product: side} (or a list of
+    products, when there is no trial balance to sign)."""
+    sides = products if isinstance(products, dict) else {p: "asset" for p in products}
+    source, table_rows = actual_rows(folder, sides, fiscal_year_start)
+    if source is None:
         return None
     out = {}
     known = set(products) | set(LINES)
-    for n, row in enumerate(tables.read_table(path), 2):
-        where = "%s line %d" % (os.path.basename(path), n)
-        month = (row.get("month") or "").strip()
+    for where, row in table_rows:
+        month = str(row.get("month") or "").strip()
         if month.replace(".", "").isdigit() and float(month) > 20000:
             month = xlsx.excel_date(float(month))      # Excel turned "2026-07" into a date
         month = month[:7]
@@ -104,13 +125,22 @@ def read_actuals(folder, labels, products):
         try:
             amount = float(row.get("amount") or 0)
             balance = row.get("average_balance")
+            balance = None if balance is None else str(balance)
             balance = float(balance) if balance not in (None, "") else None
         except ValueError:
             raise InputError("%s: amount and average_balance must be numbers" % where)
         if (month, line) in out:
             raise InputError("%s: %s %s appears twice" % (where, month, line))
         out[(month, line)] = (balance, amount)
-    return out
+    return out if source != "trial_balance" else _Sourced(out, source)
+
+
+class _Sourced(dict):
+    """Actuals that remember where they came from."""
+
+    def __init__(self, rows, source):
+        dict.__init__(self, rows)
+        self.source = source
 
 
 def variance(budget, actuals):
@@ -156,7 +186,8 @@ def variance(budget, actuals):
                              ("income_tax", "Income tax", -1), ("net_income", "Net income", 1)):
         statement.append({"line": label, "budget": b[key], "actual": act[key],
                           "variance": good * (act[key] - b[key])})
-    return {"through": months[-1], "months": n, "products": rows, "statement": statement}
+    return {"through": months[-1], "months": n, "products": rows, "statement": statement,
+            "source": getattr(actuals, "source", "actuals")}
 
 
 def check_budget(budget, run):

@@ -44,6 +44,7 @@ SETTINGS = (  # key, type, note for the workbook
     ("tax_rate", "float", "Income tax, percent of pre-tax income (default 0 for a credit union, 21 for a bank)."),
     ("target_capital", "float", "Capital held per dollar of risk-weighted assets, percent, for product capital."),
     ("hurdle_rate", "float", "Return on allocated capital that pricing aims for (RAROC hurdle), percent."),
+    ("fiscal_year_start", "int", "The month (1-12) the fiscal year starts, for year-to-date trial balance accounts."),
 )
 PRODUCT_FIELDS = [f.name for f in dataclasses.fields(Product) if f.name != "name"]
 SHEETS = ("Settings", "Curve", "Indexes", "Products", "Scenarios", "Contingent", "Limits", "CreditScenarios",

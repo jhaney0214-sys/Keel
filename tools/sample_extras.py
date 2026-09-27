@@ -196,12 +196,93 @@ def write_actuals(name="mid-cu", months=3):
         rows.append([month, "fee_income", "", round(income["fee_income"] * 0.96, 2)])
         rows.append([month, "operating_expense", "", round(income["operating_expense"] * 1.02, 2)])
         rows.append([month, "credit_losses", "", round(income["credit_losses"] * 1.15, 2)])
+    return write_trial_balance(folder, b, rows)
+
+
+def write_trial_balance(folder, b, rows, fiscal_year_start=1):
+    """The same actuals as the general ledger would show them: a monthly trial
+    balance with a sub-account per product (natural signs, income statement
+    year to date) and the map from accounts to Keel's lines. The analysis
+    date's month is in it, so the first month has an opening balance and a
+    prior year-to-date."""
     import csv
-    with open(os.path.join(folder, "actuals.csv"), "w", encoding="utf-8", newline="") as handle:
+    for stale in ("trial_balance.csv", "trial_balance.xlsx", "gl_map.csv", "gl_map.xlsx"):
+        if os.path.isfile(os.path.join(folder, stale)):
+            os.remove(os.path.join(folder, stale))
+    sides = {p["product"]: p["side"] for p in b["products"]}
+    opening = {p["product"]: 2 * p["average"][0] - p["end"][0] for p in b["products"]}
+    as_of = budget_month_before(b["labels"][0])
+    accounts, n_asset, n_liab = {}, 0, 0
+    for p in b["products"]:
+        name = p["product"]
+        if name == "cash" or not any(r[1] == name for r in rows):
+            continue
+        earns = any(r[1] == name and r[3] for r in rows)
+        if p["side"] == "asset":
+            n_asset += 1
+            accounts[name] = ("%d" % (1200 + 10 * n_asset), "%d" % (4100 + 10 * n_asset) if earns else None)
+        else:
+            n_liab += 1
+            accounts[name] = ("%d" % (3000 + 10 * n_liab), "%d" % (5100 + 10 * n_liab) if earns else None)
+    lines = {"fee_income": "4400", "operating_expense": "6000", "credit_losses": "6500"}
+    names = {"fee_income": "Fee and other income", "operating_expense": "Operating expense",
+             "credit_losses": "Provision for credit losses"}
+    ends = {name: opening[name] for name in accounts}
+    first = {r[1]: r[3] for r in rows if r[0] == b["labels"][0]}
+    ytd = {line: first.get(line, 0.0) * ((int(as_of[5:7]) - fiscal_year_start) % 12 + 1)
+           for line in list(accounts) + list(lines)}
+    out = []
+
+    def post(month, account, description, value):
+        out.append([month, account, description, "%.2f" % value])
+
+    def sign(line, balance):
+        credit = sides.get(line) == "liability" if balance else (sides.get(line) == "asset" or line == "fee_income")
+        return -1.0 if credit else 1.0
+
+    def month_rows(month):
+        for name, (bal, inc) in accounts.items():
+            label = name.replace("_", " ")
+            post(month, bal, label.capitalize(), sign(name, True) * ends[name])
+            if inc:
+                post(month, inc, ("Interest on " if sides[name] == "asset" else "Interest expense on ") + label,
+                     sign(name, False) * ytd[name])
+        for line, account in lines.items():
+            post(month, account, names[line], sign(line, False) * ytd[line])
+        post(month, "3900", "Regular reserve", -8467200.0)
+
+    month_rows(as_of)
+    for month in b["labels"]:
+        these = [r for r in rows if r[0] == month]
+        if not these:
+            break
+        if int(month[5:7]) == fiscal_year_start:
+            ytd = {k: 0.0 for k in ytd}
+        for _, line, average, amount in these:
+            if line in accounts and average != "":
+                ends[line] = 2 * average - ends[line]
+            ytd[line] = ytd.get(line, 0.0) + amount
+        month_rows(month)
+    with open(os.path.join(folder, "trial_balance.csv"), "w", encoding="utf-8", newline="") as handle:
         w = csv.writer(handle)
-        w.writerow(["month", "line", "average_balance", "amount"])
-        w.writerows(rows)
-    return len(rows)
+        w.writerow(["month", "account", "description", "balance"])
+        w.writerows(out)
+    with open(os.path.join(folder, "gl_map.csv"), "w", encoding="utf-8", newline="") as handle:
+        w = csv.writer(handle)
+        w.writerow(["account", "line", "measure"])
+        for name, (bal, inc) in accounts.items():
+            w.writerow([bal, name, "balance"])
+            if inc:
+                w.writerow([inc, name, "ytd"])
+        for line, account in lines.items():
+            w.writerow([account, line, "ytd"])
+    return len(out)
+
+
+def budget_month_before(label):
+    y, m = int(label[:4]), int(label[5:7])
+    y, m = (y - 1, 12) if m == 1 else (y, m - 1)
+    return "%04d-%02d" % (y, m)
 
 
 # --------------------------------------------------------------- the bank
@@ -353,7 +434,7 @@ def write_bank():
 def run():
     write_queries()
     write_proposals()
-    print("%-14s %d rows of actuals" % ("mid-cu", write_actuals()))
+    print("%-14s %d trial balance rows" % ("mid-cu", write_actuals()))
     print("%-14s %d months of product history, %d account-months" % (("mid-cu",) + write_deposit_history()))
     print("%-14s %d members" % ("mid-cu", write_depositors("mid-cu", 46000, 81)))
     print("%-14s %d members" % ("large-cu", write_depositors("large-cu", 150000, 83, sigma=1.6)))

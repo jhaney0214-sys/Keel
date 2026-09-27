@@ -288,6 +288,18 @@ interest I_b and actual B_a and I_a over the period:
 with the sign reversed for liabilities, so each is the effect on NII. A
 product the actuals leave out counts as on budget.
 
+**Actuals from the ledger** (`keel/ledger.py`). A monthly trial balance and
+an account map give the same actuals. Each mapped account's natural-sign
+balance is turned around by its line: a liability's balance, an asset's
+interest income and fee income are credits and come out positive. A
+year-to-date account's month is its balance less the prior month's, except
+in the fiscal year's first month; a month without the prior month's
+balance is left out rather than guessed. A product's average balance is
+the mean of the prior and current month-ends (the month-end alone when the
+prior is missing), the same definition the budget uses, so a ledger that
+matches the plan shows no variance. The analysis date's month-end
+balances are reconciled to the positions: each product within 0.5% (or $1).
+
 ## Rate paths
 
 `keel/curve.py`, `RatePath`. The base case is a move from today's curve by

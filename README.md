@@ -46,7 +46,8 @@ of them from it:
 - **New-product spread analysis:** a proposed product's unit economics, its
   own path through the plan, and the whole book with and without it.
 - **Budget:** the first plan year by month and by product, and, given an
-  actuals file, variance against it split into volume and rate.
+  actuals file or the general ledger's monthly trial balance, variance
+  against it split into volume and rate.
 - **Ad hoc reporting:** group, filter and total the book, the core files,
   the budget or profitability; save a query and every report runs it.
 - **Credit unions and banks:** `institution: bank` switches the words
@@ -107,8 +108,9 @@ python -m keel run examples/backtest-cu      # a quarter on: trend, assumption c
 | `community-bank` | $1.2B | a commercial bank: prime-based C&I, CRE balloons, construction, brokered CDs | (a bank: none) |
 
 `mid-cu` budgets on a rate forecast with monthly loan volumes, offering
-rates and expense lines, and has three months of `actuals.csv` for the
-budget variance and three saved queries; `backtest-cu` is `sample-cu` a
+rates and expense lines, and has its general ledger's trial balance through
+September (`trial_balance.csv`, mapped by `gl_map.csv`) for the budget
+variance and three saved queries; `backtest-cu` is `sample-cu` a
 quarter later, with its June run in `history/`; `large-cu` has two queries; `examples/proposals/` has
 two new-product proposals.
 
@@ -261,8 +263,8 @@ from its assumptions, and the study finds the gap in money-market decay.
 Every `keel run` on a folder tests each key assumption (`--quick` skips
 it) and saves its results to `<folder>/history/<date>.json`. When an
 earlier run is there, the report adds the trend, the assumption change log
-and a back-test of the earlier forecast against today's book and
-`actuals.csv`.
+and a back-test of the earlier forecast against today's book and the actuals
+(`actuals.csv` or the trial balance).
 
 ## Profitability, capital and pricing
 
@@ -286,6 +288,29 @@ The Budget section is the base plan's first year by month. Put
 product, or `fee_income`, `operating_expense`, `credit_losses`,
 `income_tax`), `average_balance` and `amount`, and the report adds
 year-to-date variance by product, split into volume and rate.
+
+Or skip the hand-built file and hand over the general ledger. Put its
+monthly trial balance in the folder as `trial_balance.csv` (`month`,
+`account`, `balance`, natural signs: debits positive, credits negative) and
+map the accounts once in `gl_map.csv`:
+
+```
+account,line,measure
+1210,used_auto,balance        month-end balance of a product
+4110,used_auto,ytd            its interest, year to date
+5300,certificates,ytd         dividends paid
+4400,fee_income,activity      the month's activity alone
+6000,operating_expense,ytd
+```
+
+`measure` is `balance`, `activity` or `ytd`; year-to-date accounts are
+differenced month over month and restart in the settings'
+`fiscal_year_start` month (default 1, January). Several accounts can map to
+one line; accounts the map leaves out are ignored. Include the analysis
+date's month, so the first month has an opening balance and a prior
+year-to-date: the reconciliation then ties that month's balances to the
+positions, product by product. One source of actuals per folder: both a
+trial balance and `actuals.csv` is refused.
 
 ## Ad hoc reports
 
@@ -327,7 +352,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 135 tests
+python -m unittest discover -s tests      # 146 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,

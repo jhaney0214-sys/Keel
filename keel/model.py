@@ -194,6 +194,7 @@ class Assumptions:
     tax_rate: float = 0.0       # decimal; credit unions are exempt
     target_capital: float = 0.10  # capital held per dollar of risk-weighted assets, for allocation
     hurdle_rate: float = 0.12   # the return on allocated capital pricing aims for (RAROC)
+    fiscal_year_start: int = 1  # the month year-to-date ledger accounts restart
     base_case: str = "flat"     # flat | forward | forecast: where rates go in the plan
     rate_forecast: list = dataclasses.field(default_factory=list)   # [(month, tenor, rate %)]
     path: object = None         # the RatePath the plan follows, or None for flat
@@ -321,6 +322,7 @@ def parse_assumptions(raw):
         institution=institution, tax_rate=_decimal(raw.get("tax_rate", tax_default)),
         target_capital=_decimal(raw.get("target_capital", 10.0)),
         hurdle_rate=_decimal(raw.get("hurdle_rate", 12.0)),
+        fiscal_year_start=_fiscal(raw.get("fiscal_year_start", 1)),
         as_of=raw["as_of"], curve=Curve(raw["curve"]), indexes=indexes, products=products,
         horizon_months=int(raw.get("horizon_months", 60)),
         nev_max_months=int(raw.get("nev_max_months", 360)), rate_floor=floor,
@@ -341,6 +343,16 @@ def parse_assumptions(raw):
 
 def _truthy(value):
     return str(value).strip().lower() in ("true", "yes", "y", "1", "x") if value not in (None, "") else False
+
+
+def _fiscal(value):
+    try:
+        month = int(float(value))
+    except (TypeError, ValueError):
+        month = 0
+    if not 1 <= month <= 12:
+        raise InputError("assumptions: fiscal_year_start must be a month, 1 to 12, not %r" % (value,))
+    return month
 
 
 def _credit(raw_list):

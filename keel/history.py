@@ -33,7 +33,7 @@ FIELDS = ("cpr", "cpr_per_100bp", "runoff", "runoff_per_100bp", "beta", "rate_fl
           "charge_off", "haircut", "stress_runoff", "risk_weight", "servicing_cost", "fee_yield", "origination_cost",
           "new_term")
 SETTINGS = ("fee_income", "operating_expense", "cash_minimum", "base_case", "tax_rate", "target_capital",
-            "hurdle_rate", "stress_months")
+            "hurdle_rate", "stress_months", "fiscal_year_start")
 FORECAST_MONTHS = 24
 
 
@@ -140,13 +140,12 @@ def changes(prior, current):
     return out
 
 
-def _actual_nii(folder, months, sides):
+def _actual_nii(folder, months, sides, fiscal_year_start=1):
     """{month: actual NII} from actuals.csv/.xlsx rows for those months, where every product is reported."""
-    path = tables.find(folder, "actuals", required=False) if folder else None
-    if not path:
-        return {}
+    from keel import budget
+    _, table_rows = budget.actual_rows(folder, sides, fiscal_year_start)
     by_month = {}
-    for row in tables.read_table(path):
+    for _, row in table_rows:
         month = (row.get("month") or "").strip()[:7]
         line = (row.get("line") or "").strip()
         if month in months and line in sides:
@@ -180,7 +179,8 @@ def backtest(prior, current, folder=None):
         products.append(row)
     months = prior["forecast"]["months"][:k]
     sides = {n: f["side"] for n, f in prior["forecast"]["products"].items() if n != CASH}
-    actual = _actual_nii(folder, months, sides)
+    fiscal = int(current["assumptions"]["settings"].get("fiscal_year_start") or 1)
+    actual = _actual_nii(folder, months, sides, fiscal) if folder else {}
     nii = [{"month": m, "forecast": prior["forecast"]["nii"][i], "actual": actual.get(m)} for i, m in enumerate(months)]
     short_forecast = prior["forecast"]["short_rate"][k - 1]
     short_actual = float(current["assumptions"]["curve"].get("1", 0.0)) if "1" in current["assumptions"]["curve"] \

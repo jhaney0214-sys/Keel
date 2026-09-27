@@ -536,10 +536,13 @@ def budget_section(r):
         parts.append(table(["Line", "Budget", "Actual", "Better (worse)"],
                            [[esc(x["line"]), k(x["budget"]), k(x["actual"]), k(x["variance"])] for x in v["statement"]],
                            total_last=True))
-        parts.append("<p class='muted'>From <code>actuals.csv</code>, $000. A product the actuals leave out counts as "
+        source = ("the general ledger's trial balance (<code>trial_balance</code>, mapped by <code>gl_map</code>)"
+                  if v.get("source") == "trial_balance" else "<code>actuals.csv</code>")
+        parts.append("<p class='muted'>From " + source + ", $000. A product the actuals leave out counts as "
                      "on budget. Volume is the balance difference at the budget's yield; rate is the rest.</p>")
     else:
-        parts.append("<p class='muted'>Add <code>actuals.csv</code> (month, line, average_balance, amount) to the "
+        parts.append("<p class='muted'>Add the general ledger's monthly <code>trial_balance.csv</code> with a "
+                     "<code>gl_map.csv</code>, or <code>actuals.csv</code> (month, line, average_balance, amount), to the "
                      "folder to compare actual results with this budget, product by product.</p>")
     parts.append("</section>")
     return "".join(parts)
@@ -667,7 +670,7 @@ def history_section(r):
                                 for x in b["nii"]] + [["Total", k(f), k(a_), "%+.1f%%" % (100 * (a_ / f - 1))]],
                                total_last=True))
         else:
-            parts.append("<p class='muted'>Add those months to <code>actuals.csv</code> to back-test net interest "
+            parts.append("<p class='muted'>Add those months to <code>actuals.csv</code> or the trial balance to back-test net interest "
                          "income as well.</p>")
     parts.append("</section>")
     return "".join(parts)
