@@ -170,6 +170,13 @@ class Import(unittest.TestCase):
         for c in measures.reconcile(self.imp.positions, self.a, runs):
             self.assertTrue(c.passed, "%s: %s" % (c.name, c.detail))
 
+    def test_a_loan_ninety_days_late_earns_nothing(self):
+        late = [p for p in self.imp.positions if "non-accrual" in p.name]
+        self.assertTrue(late, "the sample has non-accrual loans")
+        self.assertTrue(all(p.rate == 0.0 for p in late))
+        on_time = [p for p in self.imp.positions if p.id.startswith("loan") and "non-accrual" not in p.name]
+        self.assertTrue(all(p.rate > 0 for p in on_time))
+
     def test_an_unmapped_loan_code_is_refused(self):
         folder = tempfile.mkdtemp()
         try:

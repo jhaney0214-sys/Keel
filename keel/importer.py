@@ -31,6 +31,8 @@ from keel.model import InputError, Position
 #: a few hundred positions, narrow enough that the pool's cash flows are the
 #: loans' cash flows.
 TERM_BAND = 6          # months
+#: Loans this far past due stop accruing interest, as the accounting requires.
+NONACCRUAL_DAYS = 90
 RATE_BAND = 0.25       # percent
 MATURITY_TOLERANCE = 0.01   # dollars: detail vs GL differences above this are reported
 
@@ -102,7 +104,8 @@ class Pool(object):
         b = self.balance or 1.0
         t = self.template
         return Position(
-            id=pid, name="%s pool (%d rows)" % (t["product"], self.count), product=t["product"],
+            id=pid, name="%s%s pool (%d rows)" % (t["product"], " non-accrual" if t.get("nonaccrual") else "",
+                                                 self.count), product=t["product"],
             side=t["side"], balance=round(self.balance, 2), rate=self.rate_x / b / 100.0,
             rate_type=t["rate_type"], index=t.get("index", ""), margin=self.margin_x / b / 100.0,
             reset_months=t.get("reset_months", 0), term_months=int(round(self.term_x / b)),
@@ -130,8 +133,11 @@ def import_folder(folder, as_of):
             raise InputError("loans.csv: loan %s has product code %r, which product_map.json does not map"
                              % (r["loan_id"], code))
         balance = _num(r["current_balance"])
-        rate = _num(r["rate"])
-        variable = r["rate_type"].strip().upper() == "V"
+        nonaccrual = _num(r.get("days_delinquent")) >= NONACCRUAL_DAYS
+        # A non-accrual loan earns nothing, so it pools apart at a zero rate;
+        # its principal still runs off on schedule, and charge-offs apply.
+        rate = 0.0 if nonaccrual else _num(r["rate"])
+        variable = r["rate_type"].strip().upper() == "V" and not nonaccrual
         maturity = _date(r["maturity_date"])
         revolving = maturity is None
         term = 0 if revolving else max(1, months_between(as_of, maturity))
@@ -140,8 +146,9 @@ def import_folder(folder, as_of):
             opened = _date(r["origination_date"])
             amort = max(term + 1, int(_num(r["amortization_months"])) - months_between(opened, as_of))
         if revolving:
-            key = (product, "revolving", variable, r["index"], round(rate / RATE_BAND))
+            key = (product, "revolving", variable, r["index"], round(rate / RATE_BAND), nonaccrual)
             template = {"product": product, "side": "asset", "rate_type": "variable" if variable else "fixed",
+                        "nonaccrual": nonaccrual,
                         "index": r["index"], "reset_months": int(_num(r["reset_months"], 1)) if variable else 0,
                         "amortization": "nonmaturity",
                         "floor": _num(r["rate_floor"]) / 100.0 if r["rate_floor"] else None}
@@ -150,8 +157,9 @@ def import_folder(folder, as_of):
             if variable and r["next_reset_date"]:
                 next_reset = max(1, months_between(as_of, _date(r["next_reset_date"])))
             key = (product, variable, r["index"], r["margin"], next_reset // 12 if variable else 0,
-                   term // TERM_BAND, round(rate / RATE_BAND), bool(amort))
+                   term // TERM_BAND, round(rate / RATE_BAND), bool(amort), nonaccrual)
             template = {"product": product, "side": "asset", "rate_type": "variable" if variable else "fixed",
+                        "nonaccrual": nonaccrual,
                         "index": r["index"], "reset_months": int(_num(r["reset_months"])) if variable else 0,
                         "amortization": "balloon" if amort else "level",
                         "floor": _num(r["rate_floor"]) / 100.0 if r["rate_floor"] else None,
@@ -162,16 +170,20 @@ def import_folder(folder, as_of):
             pool = pools[key] = Pool(key, template)
         pool.add(balance, rate, term, _num(r["margin"]), amort)
         s = by_product.setdefault(product, {"product": product, "count": 0, "balance": 0.0, "rate_x": 0.0,
-                                            "term_x": 0.0, "delinquent": 0.0})
+                                            "term_x": 0.0, "delinquent": 0.0, "nonaccrual": 0.0,
+                                            "contract_x": 0.0})
         s["count"] += 1
         s["balance"] += balance
         s["rate_x"] += balance * rate
+        s["contract_x"] += balance * _num(r["rate"])
         s["term_x"] += balance * term
+        if nonaccrual:
+            s["nonaccrual"] += balance
         if _num(r.get("days_delinquent")) >= 60:
             s["delinquent"] += balance
     for i, pool in enumerate(sorted(pools.values(), key=lambda p: (p.template["product"], p.key)), 1):
         positions.append(pool.position("loan%04d" % i))
-    summaries["loans"] = [dict(s, rate=s["rate_x"] / s["balance"], term=s["term_x"] / s["balance"])
+    summaries["loans"] = [dict(s, rate=s["contract_x"] / s["balance"], term=s["term_x"] / s["balance"])
                           for s in sorted(by_product.values(), key=lambda s: -s["balance"])]
 
     # ---- certificates

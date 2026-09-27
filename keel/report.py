@@ -10,7 +10,7 @@ import datetime
 import html
 import os
 
-from keel import engine, measures
+from keel import engine, importer, measures
 from keel.engine import CASH
 
 
@@ -229,11 +229,13 @@ def build(positions, assumptions, out_dir, name="Credit union", imported=None):
     if imported is not None:
         loans = imported.summaries["loans"]
         parts.append("<h3>Loans</h3>")
-        parts.append(_table(["Product", "Loans", "Balance", "Weighted rate", "Weighted remaining term (months)",
-                             "60+ days delinquent"],
+        parts.append(_table(["Product", "Loans", "Balance", "Weighted contract rate",
+                             "Weighted remaining term (months)", "60+ days delinquent", "Non-accrual (90+)"],
                             [[html.escape(l["product"].replace("_", " ")), "{:,}".format(l["count"]),
                               _m(l["balance"]), "%.2f%%" % l["rate"], "%.0f" % l["term"],
-                              _p(l["delinquent"] / l["balance"], 2)] for l in loans]))
+                              _p(l["delinquent"] / l["balance"], 2), _m(l["nonaccrual"])] for l in loans]))
+        parts.append("<p class='muted'>Loans %d or more days past due are on non-accrual: they pool apart at a "
+                     "zero rate, so projected interest income excludes them.</p>" % importer.NONACCRUAL_DAYS)
         parts.append("<h3>Certificate maturities</h3>")
         parts.append(_table(["Maturing in", "Certificates", "Balance", "Weighted rate"],
                             [[c["band"], "{:,}".format(c["count"]), _m(c["balance"]), "%.2f%%" % c["rate"]]
