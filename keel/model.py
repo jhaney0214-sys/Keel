@@ -1,0 +1,192 @@
+"""What the credit union gives Keel: its positions and its assumptions.
+
+Two files, both plain text so a validator can read every input:
+
+positions.csv, one row per instrument or pool:
+    id, name, product, side (asset | liability), balance, rate (annual %),
+    rate_type (fixed | variable | administered | none), index, margin,
+    reset_months, term_months (remaining), amortization
+    (level | bullet | nonmaturity | none), floor, cap
+
+assumptions.json: the curve, each product's behaviour (prepayment, decay,
+beta, new-business terms, growth), income and expense, and the liquidity
+stress. Everything the projection does that is not arithmetic on the
+positions comes from this file, so nothing is buried in the code.
+"""
+
+import csv
+import dataclasses
+import json
+import os
+
+from keel.curve import Curve, Scenario, standard_scenarios
+
+SIDES = ("asset", "liability")
+RATE_TYPES = ("fixed", "variable", "administered", "none")
+AMORTIZATIONS = ("level", "bullet", "nonmaturity", "none")
+
+
+class InputError(ValueError):
+    """An input that would make the projection wrong rather than merely odd."""
+
+
+@dataclasses.dataclass
+class Position:
+    id: str
+    name: str
+    product: str
+    side: str
+    balance: float
+    rate: float                 # annual, as a decimal
+    rate_type: str
+    index: str = ""
+    margin: float = 0.0         # decimal
+    reset_months: int = 0
+    term_months: int = 0        # remaining; 0 for no maturity
+    amortization: str = "none"
+    floor: float = None         # decimal
+    cap: float = None           # decimal
+    age: int = 0                # months since the analysis date
+    new_business: bool = False
+
+    def copy(self):
+        return dataclasses.replace(self)
+
+
+def _pct(text, default=None):
+    text = (text or "").strip()
+    return default if text == "" else float(text) / 100.0
+
+
+def _int(text, default=0):
+    text = (text or "").strip()
+    return default if text == "" else int(float(text))
+
+
+def read_positions(path):
+    positions, seen = [], set()
+    with open(path, encoding="utf-8", newline="") as handle:
+        for line, row in enumerate(csv.DictReader(handle), 2):
+            where = "%s line %d" % (os.path.basename(path), line)
+            p = Position(
+                id=row["id"].strip(), name=row["name"].strip(), product=row["product"].strip(),
+                side=row["side"].strip().lower(), balance=float(row["balance"]),
+                rate=_pct(row.get("rate"), 0.0), rate_type=row["rate_type"].strip().lower(),
+                index=(row.get("index") or "").strip(), margin=_pct(row.get("margin"), 0.0),
+                reset_months=_int(row.get("reset_months")), term_months=_int(row.get("term_months")),
+                amortization=row["amortization"].strip().lower(),
+                floor=_pct(row.get("floor")), cap=_pct(row.get("cap")))
+            if p.id in seen:
+                raise InputError("%s: id %r appears twice" % (where, p.id))
+            seen.add(p.id)
+            if p.side not in SIDES:
+                raise InputError("%s: side must be asset or liability, not %r" % (where, p.side))
+            if p.rate_type not in RATE_TYPES:
+                raise InputError("%s: unknown rate_type %r" % (where, p.rate_type))
+            if p.amortization not in AMORTIZATIONS:
+                raise InputError("%s: unknown amortization %r" % (where, p.amortization))
+            if p.balance < 0:
+                raise InputError("%s: a negative balance is not a position" % where)
+            if p.amortization in ("level", "bullet") and p.term_months <= 0:
+                raise InputError("%s: a %s position needs term_months" % (where, p.amortization))
+            if p.rate_type == "variable" and (not p.index or p.reset_months <= 0):
+                raise InputError("%s: a variable rate needs an index and reset_months" % where)
+            positions.append(p)
+    return positions
+
+
+@dataclasses.dataclass
+class Product:
+    """How one product behaves. Rates and speeds are annual decimals."""
+    name: str
+    cpr: float = 0.0              # prepayment, level-amortizing products
+    cpr_per_100bp: float = 0.0    # CPR added per 100bp *fall* in rates
+    cpr_floor: float = 0.0
+    cpr_cap: float = 0.6
+    runoff: float = 0.0           # annual decay, non-maturity products
+    runoff_per_100bp: float = 0.0 # decay added per 100bp *rise* in rates
+    beta: float = 0.0             # share of a market move an administered rate follows
+    rate_floor: float = 0.0
+    new_term: int = 0             # months, for new business
+    new_amortization: str = ""
+    spread: float = 0.0           # new-business rate over the curve at new_term
+    discount_spread: float = 0.0  # NEV discount rate over the curve
+    growth: float = 0.0           # FP&A plan: annual balance growth
+    charge_off: float = 0.0       # annual net charge-offs, loans
+    liquid: bool = False          # an investment that can be sold or pledged
+    haircut: float = 0.0          # its liquidity-stress haircut
+    stress_runoff: float = 0.0    # extra share of balance lost over the stress period
+
+
+def _decimal(value):
+    return float(value) / 100.0
+
+
+#: Every Product field entered in percent. Beta was missing the first time
+#: this ran, so a 10% beta read as 1000% and a +100bp shock paid regular
+#: shares 10.1%; `test_every_percent_field_is_converted` now guards the list.
+PERCENT_FIELDS = ("cpr", "cpr_per_100bp", "cpr_floor", "cpr_cap", "runoff", "runoff_per_100bp",
+                  "beta", "rate_floor", "spread", "discount_spread", "growth", "charge_off",
+                  "haircut", "stress_runoff")
+
+
+@dataclasses.dataclass
+class Assumptions:
+    as_of: str
+    curve: Curve
+    indexes: dict               # index name -> (tenor months, spread decimal)
+    products: dict              # product name -> Product
+    horizon_months: int = 60
+    nev_max_months: int = 360
+    rate_floor: float = 0.0     # scenario rates are floored here (percent)
+    short_tenor: int = 1        # the curve point administered rates follow
+    fee_income: float = 0.0     # annual
+    operating_expense: float = 0.0
+    expense_growth: float = 0.0
+    cash_minimum: float = 0.0
+    overnight_spread: float = 0.0
+    stress_months: int = 3
+    contingent: list = dataclasses.field(default_factory=list)   # [(name, capacity)]
+    scenarios: list = dataclasses.field(default_factory=list)
+    notes: dict = dataclasses.field(default_factory=dict)
+
+
+def read_assumptions(path):
+    with open(path, encoding="utf-8") as handle:
+        raw = json.load(handle)
+    products = {}
+    for name, spec in raw["products"].items():
+        values = {}
+        for key, value in spec.items():
+            if key not in {f.name for f in dataclasses.fields(Product)}:
+                raise InputError("assumptions: product %s has an unknown field %r" % (name, key))
+            values[key] = _decimal(value) if key in PERCENT_FIELDS else value
+        products[name] = Product(name=name, **values)
+    indexes = {k: (int(v["tenor_months"]), _decimal(v.get("spread", 0))) for k, v in raw["indexes"].items()}
+    floor = raw.get("rate_floor", 0.0)
+    scenarios = standard_scenarios(floor)
+    for spec in raw.get("extra_scenarios", []):
+        scenarios.append(Scenario(spec["name"], spec["shock_bp"], spec.get("ramp_months", 0), floor))
+    liquidity = raw.get("liquidity", {})
+    return Assumptions(
+        as_of=raw["as_of"], curve=Curve(raw["curve"]), indexes=indexes, products=products,
+        horizon_months=int(raw.get("horizon_months", 60)),
+        nev_max_months=int(raw.get("nev_max_months", 360)), rate_floor=floor,
+        short_tenor=int(raw.get("short_tenor_months", 1)),
+        fee_income=float(raw.get("fee_income", 0)),
+        operating_expense=float(raw.get("operating_expense", 0)),
+        expense_growth=_decimal(raw.get("expense_growth", 0)),
+        cash_minimum=float(raw.get("cash_minimum", 0)),
+        overnight_spread=_decimal(raw.get("overnight_spread", 0)),
+        stress_months=int(liquidity.get("stress_months", 3)),
+        contingent=[(c["name"], float(c["capacity"])) for c in liquidity.get("contingent", [])],
+        scenarios=scenarios, notes=raw.get("notes", {}))
+
+
+def check(positions, assumptions):
+    """Every product a position uses must be described, and every index priced."""
+    for p in positions:
+        if p.product not in assumptions.products:
+            raise InputError("position %s: product %r has no assumptions" % (p.id, p.product))
+        if p.rate_type == "variable" and p.index not in assumptions.indexes:
+            raise InputError("position %s: index %r is not in assumptions" % (p.id, p.index))

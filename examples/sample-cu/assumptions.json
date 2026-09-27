@@ -1,0 +1,55 @@
+{
+  "notes": {
+    "about": "A synthetic credit union for demonstrating Keel. Every figure here is invented to be plausible, not taken from any institution.",
+    "rates": "Percent. Speeds (cpr, runoff, charge_off, growth) are annual percent; beta is the percent of a short-rate move an administered rate follows.",
+    "non_maturity_shares": "Decay, beta and discount spread for non-maturity shares are management assumptions. NCUA's NEV Supervisory Test uses standardized values for them (SL 22-01); confirm and enter those before relying on the test result."
+  },
+  "as_of": "2026-06-30",
+  "curve": {"1": 4.00, "3": 3.95, "6": 3.85, "12": 3.70, "24": 3.60, "36": 3.60, "60": 3.70, "84": 3.85, "120": 4.00, "360": 4.40},
+  "indexes": {
+    "PRIME": {"tenor_months": 1, "spread": 3.00},
+    "SOFR": {"tenor_months": 1, "spread": 0.00},
+    "TSY_1Y": {"tenor_months": 12, "spread": 0.00}
+  },
+  "rate_floor": 0.0,
+  "short_tenor_months": 1,
+  "horizon_months": 60,
+  "nev_max_months": 360,
+  "fee_income": 5600000,
+  "operating_expense": 17500000,
+  "expense_growth": 3.0,
+  "cash_minimum": 15000000,
+  "overnight_spread": 0.25,
+  "products": {
+    "cash": {},
+    "other_assets": {},
+    "other_liabilities": {},
+    "treasuries": {"new_term": 24, "new_amortization": "bullet", "spread": 0.0, "discount_spread": 0.0, "liquid": true, "haircut": 2.0},
+    "agency_bullets": {"new_term": 36, "new_amortization": "bullet", "spread": 0.15, "discount_spread": 0.15, "liquid": true, "haircut": 4.0},
+    "agency_mbs": {"cpr": 7.0, "cpr_per_100bp": 5.0, "cpr_floor": 4.0, "cpr_cap": 40.0, "new_term": 360, "new_amortization": "level", "spread": 0.60, "discount_spread": 0.60, "liquid": true, "haircut": 6.0},
+    "new_auto": {"cpr": 18.0, "cpr_per_100bp": 2.0, "new_term": 60, "new_amortization": "level", "spread": 2.30, "discount_spread": 2.30, "growth": 4.0, "charge_off": 0.35},
+    "used_auto": {"cpr": 20.0, "cpr_per_100bp": 2.0, "new_term": 60, "new_amortization": "level", "spread": 3.20, "discount_spread": 3.20, "growth": 4.0, "charge_off": 0.90},
+    "first_mortgage": {"cpr": 6.0, "cpr_per_100bp": 6.0, "cpr_floor": 3.0, "cpr_cap": 45.0, "new_term": 360, "new_amortization": "level", "spread": 2.00, "discount_spread": 2.00, "growth": 2.0, "charge_off": 0.05},
+    "arm_mortgage": {"cpr": 10.0, "cpr_per_100bp": 4.0, "new_term": 360, "new_amortization": "level", "discount_spread": 2.20, "growth": 2.0, "charge_off": 0.05},
+    "heloc": {"runoff": 20.0, "discount_spread": 3.50, "growth": 5.0, "charge_off": 0.20},
+    "credit_card": {"runoff": 35.0, "discount_spread": 9.00, "growth": 3.0, "charge_off": 3.00},
+    "commercial_re": {"cpr": 5.0, "cpr_per_100bp": 2.0, "new_term": 60, "new_amortization": "level", "spread": 2.60, "discount_spread": 2.60, "growth": 5.0, "charge_off": 0.25},
+    "regular_shares": {"runoff": 9.0, "runoff_per_100bp": 1.5, "beta": 10.0, "rate_floor": 0.05, "discount_spread": 0.30, "growth": 2.0, "stress_runoff": 12.0},
+    "share_drafts": {"runoff": 12.0, "runoff_per_100bp": 1.0, "beta": 5.0, "rate_floor": 0.02, "discount_spread": 0.30, "growth": 2.0, "stress_runoff": 10.0},
+    "money_market": {"runoff": 22.0, "runoff_per_100bp": 3.0, "beta": 55.0, "rate_floor": 0.25, "discount_spread": 0.30, "growth": 3.0, "stress_runoff": 25.0},
+    "ira_shares": {"runoff": 8.0, "beta": 20.0, "rate_floor": 0.10, "discount_spread": 0.30, "growth": 1.0, "stress_runoff": 5.0},
+    "certificates": {"new_term": 12, "new_amortization": "bullet", "spread": -0.20, "discount_spread": -0.20, "growth": 2.0, "stress_runoff": 15.0},
+    "borrowings": {"discount_spread": 0.30}
+  },
+  "extra_scenarios": [
+    {"name": "ramp +200", "shock_bp": 200, "ramp_months": 12},
+    {"name": "ramp -200", "shock_bp": -200, "ramp_months": 12}
+  ],
+  "liquidity": {
+    "stress_months": 3,
+    "contingent": [
+      {"name": "FHLB unused borrowing capacity", "capacity": 60000000},
+      {"name": "Central Liquidity Facility (through a corporate credit union)", "capacity": 20000000}
+    ]
+  }
+}
