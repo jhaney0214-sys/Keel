@@ -606,6 +606,21 @@ average was used where the latest quarter was available. The per-credit-
 union rows name real institutions on default behaviour, so they are written
 to the git-ignored `private/`.
 
+**The scorecard does not score NEV, and a passing scorecard hid an NEV
+fault.** On 2026-09-28, with this record green, a sweep of NCUA's
+supervisory test over 40 random credit unions over $50 million found 16
+rated High and 6 with a negative post-shock NEV ratio. Base NEV sat 2-6
+points of assets under book net worth before any shock. Two call-report
+calibration faults caused it (variable loans scaled with the fixed book, and
+securities taking a loss already in equity a second time; see "Any credit
+union from its call report" above). Neither touched quarterly NII, so the
+fixed version scores the same (2.82% on the quarter to June 2026, before and
+after). The check that found it compared base NEV with book net worth across
+the population; it is not automated. After the fixes, 11 of 40 rate High and
+3 are negative, and no public post-2022 distribution of ratings exists to
+say whether that is right. Until NEV is compared with a production model's
+on real files, treat call-report NEV as unvalidated.
+
 ## Second opinion
 
 `keel compare` (`keel/compare.py`) sets Keel's figures beside another ALM
