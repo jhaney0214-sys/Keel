@@ -89,8 +89,11 @@ def diverging_bars(rows, fmt, title, limit=None, limit_label="limit", both_sides
 def columns(rows, fmt, title, signed=False):
     """Vertical bars. `rows` are (label, value, tooltip). Signed columns hang
     from a zero line in the middle and take the diverging colours."""
-    top, bottom, left, right = 28, 40, 64, 12
-    height = 240
+    # Room above the tallest column for its value label, clear of the title,
+    # and below the deepest for its label, clear of the band names. Found when
+    # a gap chart's "+75M" sat on its title.
+    top, bottom, left, right = 44, 52, 64, 12
+    height = 256
     plot_h = height - top - bottom
     plot_w = WIDTH - left - right
     values = [v for _, v, _ in rows]

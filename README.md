@@ -259,8 +259,12 @@ python -m keel snapshot examples/cu-12345 --contact "A. Analyst, analyst@example
 headline numbers, the earnings, economic value, liquidity and capital
 findings, NII and NEV by scenario, the repricing gap, peers when the folder
 has them, what the figures are built from, and a closing offer that ends
-on `--contact`. It shows no policy limits, since a call report does not
-carry the board's. **On a call-report folder it grades nothing:** behaviour
+on `--contact` (Jordan Haney's by default). **Policy limits are the
+institution's own:** the page shows only those it has set, in the Limits
+sheet, as `"limits"` in assumptions.json, or for one page with
+`--limit nii_decline_300=15` (repeatable; the keys are under Policy limits
+above), and says how to set them when none are. **On a call-report folder
+it grades nothing else:** behaviour
 is Keel's defaults, so the NCUA supervisory figures are shown as indicative,
 without a Low, Moderate or High rating, and the page says so at the top.
 Keep snapshots of real credit unions in `private/`; they are models built on

@@ -359,7 +359,7 @@ def findings(r):
     out.append(("Economic value", text))
     L = r["liquidity"]
     if L["survival"] is None:
-        text = "Liquidity lasts through the first year of the %d-month stress; its low point is %s, in month %d." % (
+        text = "Liquidity lasts the full year measured under a %d-month stress; its low point is %s, in month %d." % (
             L["stress_months"], _money(L["lowest"]), L["lowest_month"])
     else:
         text = "Liquidity runs out in month %d of the stress." % L["survival"]

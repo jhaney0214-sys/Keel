@@ -72,7 +72,9 @@ def main(argv=None):
     snap.add_argument("folder")
     snap.add_argument("--out", default=None, help="default: <folder>/report/snapshot.html")
     snap.add_argument("--name", default=None, help="default: the first sentence of the assumptions' notes")
-    snap.add_argument("--contact", default="[Your name], [contact]", help="the closing line: who to reply to")
+    snap.add_argument("--contact", default=None, help="the closing line: who to reply to")
+    snap.add_argument("--limit", action="append", default=[], metavar="KEY=VALUE",
+                      help="a policy limit for this page, e.g. nii_decline_300=15 (repeatable; overrides the settings)")
     cmp_ = sub.add_parser("compare", help="a second opinion: Keel beside another ALM model's figures on the same book")
     cmp_.add_argument("folder")
     cmp_.add_argument("other", nargs="?", help="the other model's figures (measure, scenario, value)")
@@ -282,9 +284,21 @@ def run_callreport(args):
 def run_snapshot(args):
     from keel import snapshot
     positions, assumptions, _, imported = load(args.folder)
+    given = {}
+    for item in args.limit:
+        key, sep, value = item.partition("=")
+        try:
+            given[key.strip()] = float(value)
+        except ValueError:
+            raise model.InputError("--limit %r: expected KEY=VALUE, with VALUE a number" % item)
+        if not sep:
+            raise model.InputError("--limit %r: expected KEY=VALUE" % item)
+    assumptions.limits.update(model._limits(given))
+    if "warning_band" in given:
+        assumptions.warning_band = given["warning_band"]
     name = args.name or assumptions.notes.get("about", "Credit union").split(".")[0].split(" (")[0].strip()
     out = args.out or os.path.join(args.folder, "report", "snapshot.html")
-    r = snapshot.build(positions, assumptions, out, name, args.folder, args.contact, imported)
+    r = snapshot.build(positions, assumptions, out, name, args.folder, args.contact or snapshot.CONTACT, imported)
     print("snapshot -> %s  (year-one NII %s)" % (out, "{:,.0f}".format(r["nii_base"]["y1"])))
     return 0
 

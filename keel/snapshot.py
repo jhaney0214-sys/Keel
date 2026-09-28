@@ -6,7 +6,9 @@ It is written for a credit union or bank that has never run Keel. Built from
 the public call report (`keel callreport`), every balance and total is the
 institution's own but its behaviour is Keel's defaults, so the page says
 which is which and ends with what a run on its own files would change. It
-shows no policy limits, because a call report does not carry the board's.
+shows only the policy limits the institution has set (in its settings, or
+with --limit): a call report does not carry the board's, and a typical
+limit shown as if it were theirs would be a verdict nobody set.
 
 Every figure comes from the same `results.compute` output as the full
 report, so the two cannot disagree.
@@ -19,9 +21,12 @@ from keel import charts, report, results as results_module, terms
 from keel.report import chip, esc, k, pct, signed, signed_points, table
 
 RATING = report.RATING
+#: Who a snapshot's closing offer asks the reader to reply to.
+CONTACT = "Jordan Haney, CFA, jhaney0214@gmail.com"
 
 EXTRA_STYLE = """
 .snap .tiles{grid-template-columns:repeat(3,1fr)}
+.calibration{font-size:.8rem}
 @media (max-width:40rem){.snap .tiles{grid-template-columns:repeat(2,1fr)}}
 .basis{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:.8rem;margin:.6rem 0 1rem}
 .basis div{border:1px solid var(--rule);border-radius:4px;padding:.7rem .9rem;font-size:.88rem}
@@ -29,7 +34,11 @@ EXTRA_STYLE = """
 .offer{background:var(--panel);border-radius:4px;padding:1rem 1.1rem;margin:1.6rem 0 0}
 .offer h2{border:0;margin:0 0 .5rem;padding:0}
 .note{border-left:3px solid var(--warning);padding:.5rem .8rem;background:var(--panel);font-size:.88rem;margin:.8rem 0}
-@media print{.snap h2{break-before:auto} #peers{break-before:page}}
+@media print{html{font-size:11px} body.snap{font-size:11px} .snap h2{break-before:auto;break-after:avoid;margin-top:1rem}
+.snap .charts{grid-template-columns:1fr 1fr;gap:0 1.2rem} .snap svg.chart{max-width:100%}
+.snap #rate-risk>svg.chart{max-width:34rem} .snap .tile{padding:.45rem .6rem} .snap .findings li{padding:.35rem .6rem}
+.snap td{padding:.15rem .5rem} .snap th{padding:.2rem .5rem} .snap .offer{break-inside:avoid}
+.snap header.top .inner{padding-top:0}}
 """
 
 # The report's findings a first look keeps; plan, profitability, limits and the
@@ -57,7 +66,7 @@ def tiles(r):
     a, t, L = r["assumptions"], r["test"], r["liquidity"]
     parallel = [x for x in r["nii"] if x["shock_bp"] in (300, -300) and x["ramp"] == 0]
     worst = min(parallel, key=lambda x: x["y1_change"])
-    out = [("$" + k(r["nii_base"]["y1"]) + "K", "Year-one net interest income, base plan", ""),
+    out = [("$%.1fM" % (r["nii_base"]["y1"] / 1e6), "Year-one net interest income, base plan", ""),
            (signed(worst["y1_change"]), "Year-one NII in the %sbp shock" % worst["scenario"], "")]
     if terms.is_bank(a):
         nev = min((x for x in r["nev"] if x["scenario"] in ("+300", "-300")), key=lambda x: x["ratio"])
@@ -74,10 +83,33 @@ def tiles(r):
                  chip(RATING[t["sensitivity_rating"]], t["sensitivity_rating"] + " risk"))]
     out += [("12+ months" if L["survival"] is None else "Month %d" % L["survival"],
              "Liquidity lasts, %d-month stress" % a.stress_months, ""),
-            (pct(r["opening"]["equity"] / r["opening"]["assets"], 1), "Net worth to assets today", "")]
+            # Book equity, after unrealized securities losses: not the regulatory net worth ratio the peers show.
+            (pct(r["opening"]["equity"] / r["opening"]["assets"], 1), "Book equity to assets today", "")]
     return "<div class='tiles'>%s</div>" % "".join(
         "<div class='tile'><span class='v'>%s</span><span class='l'>%s</span>%s</div>" % (esc(v), esc(l), s)
         for v, l, s in out)
+
+
+def limits(r):
+    """The board's own limits, each with its status; the ones it has not set are left out, not defaulted."""
+    board = [x for x in r["limits"] if not x.default]
+    how = ("Set them in the Limits sheet of the settings workbook, as \"limits\" in assumptions.json, or for this "
+           "page alone with <code>keel snapshot --limit nii_decline_300=15</code>.")
+    if not board:
+        return ("<section id='limits'><h2>Policy limits</h2><p>No policy limits are set, so none are shown: a "
+                "typical limit is not this %s's. %s</p></section>" % (
+                    "bank" if terms.is_bank(r["assumptions"]) else "credit union", how))
+    rows = [[esc(x.label.replace("own assumptions", "Keel's default behaviour") if indicative(r) else x.label),
+             report.limit_text(x), report.limit_value(x), chip(x.status)] for x in board]
+    note = "Near means within %g%% of the limit." % r["assumptions"].warning_band
+    if indicative(r):
+        note = ("The limits are the board's; the rate-risk measures beside them rest on Keel's default behaviour, so "
+                "read those statuses as indicative. " + note)
+    unset = len(r["limits"]) - len(board)
+    if unset:
+        note += " %d more %s not set. %s" % (unset, "is" if unset == 1 else "are", how)
+    return "<section id='limits'><h2>Policy limits</h2>%s<p class='muted'>%s</p></section>" % (
+        table(["Measure", "Limit", "Today", "Status"], rows, numeric_from=2), note)
 
 
 def rate_risk(r):
@@ -141,9 +173,18 @@ def basis(r):
                 "<div><h4>Keel's defaults, not its own</h4>Prepayment speeds, share decay and rate betas, remaining "
                 "terms, and share rates by product. These drive the NEV and the shock results most, and they are "
                 "the first thing its own files would replace.</div></div>"
-                "<p class='muted'>%s %s</p></section>" % (esc(notes.get("source", "")), esc(notes.get("calibration", ""))))
+                "<p class='muted'>How each figure was calibrated is in the notes at the end.</p></section>")
     return ("<section id='basis'><h2>What this is built from</h2><p>The institution's own detail files and "
             "assumptions, as of %s.</p></section>" % esc(r["as_of"]))
+
+
+def calibration(r):
+    """The call-report build's own notes: the provenance of every calibrated number, as fine print after the offer."""
+    notes = r["notes"]
+    if not indicative(r):
+        return ""
+    return "<section id='notes' class='muted calibration'><h3>Notes</h3><p>%s %s</p></section>" % (
+        esc(notes.get("source", "")), esc(notes.get("calibration", "")))
 
 
 def offer(r, contact):
@@ -177,13 +218,13 @@ def page(r, contact):
         "</div></header><main>" % (esc(r["name"]), esc(a.as_of), source),
         "<section id='summary'><h2>At a glance</h2>%s%s<ul class='findings'>%s</ul></section>" % (
             warn, tiles(r), "".join("<li><b>%s</b><span>%s</span></li>" % (esc(h), esc(finding(r, h, t))) for h, t in kept)),
-        rate_risk(r), peers(r), basis(r), offer(r, contact),
+        limits(r), rate_risk(r), peers(r), basis(r), offer(r, contact), calibration(r),
         "</main><footer>Generated %s by Keel. Every figure is computed, none typed.</footer></body></html>" % (
             datetime.date.today().isoformat()),
     ]), a)
 
 
-def build(positions, assumptions, out_path, name, folder=None, contact="[Your name], [contact]", imported=None):
+def build(positions, assumptions, out_path, name, folder=None, contact=CONTACT, imported=None):
     r = results_module.compute(positions, assumptions, name, imported, folder, assumption_tests=False)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as handle:

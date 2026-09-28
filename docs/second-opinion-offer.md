@@ -1,6 +1,6 @@
 # A free second opinion on your ALM model
 
-*[Your name], [contact]*
+*Jordan Haney, CFA, jhaney0214@gmail.com*
 
 Your ALM model's answers go to ALCO, the board and the examiner, and most
 credit unions have never seen them checked by a second, independent model

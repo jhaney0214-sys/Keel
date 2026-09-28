@@ -538,11 +538,10 @@ def build(report, cu, curve=None, prior=None, year_ago=None):
     groups.append(([r["id"] for r in rows if r["product"] in ("investments", "mortgage_securities")],
                    securities_price))
     priced = price_to(rows, raw, groups)
-    notes.append("NEV: securities are valued at the %s the call report gives (%.1f%% of carrying value) and "
-                 "variable-rate loans at par, each by its own discount spread; every other position at Keel's "
-                 "default spread for its product." % (
-                     "fair value" if securities_price != 1.0 else "carrying value, fair value for those available "
-                     "for sale,", 100 * securities_price) if priced else "")
+    notes.append("NEV: securities are valued at what the call report says they are worth, %.1f%% of their "
+                 "carrying value (available for sale at fair value, held to maturity at its reported fair value), "
+                 "and variable-rate loans at par, each group by its own discount spread; every other position "
+                 "takes Keel's default spread for its product." % (100 * securities_price) if priced else "")
     raw["notes"]["calibration"] = " ".join(n for n in notes if n)
     ties = {"assets": (assets, sum(r["balance"] for r in rows if r["side"] == "asset")),
             "investment_income": (income, sum(r["balance"] * (short if r["product"] == "cash" else r["rate"] / 100.0)
