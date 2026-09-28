@@ -46,7 +46,10 @@ of them from it:
   and CCULR for those over $500 million; banks' Tier 1 leverage, CET1, Tier 1
   and total risk-based ratios and CBLR; and net worth with the securities at
   market, today and after +300bp. Risk-weighted assets by product, with each
-  product's weight set in the settings.
+  product's weight set in the settings. Where securities are carried at fair
+  value, set `net_worth_adjustment` (net worth minus book equity) so the
+  regulatory ratios leave the unrealized losses out, as net worth does;
+  `keel callreport` sets it from the reported net worth.
 - **RAROC pricing calculator:** a loan's or deposit's life economics at a
   rate, the rate that earns the hurdle, and the break-even rate.
 - **Deposit pricing:** the marginal cost of new money for a rate move on

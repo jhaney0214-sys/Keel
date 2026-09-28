@@ -46,7 +46,10 @@ class Snapshot(unittest.TestCase):
         self.assertNotIn(r["test"]["ratio_rating"] + " risk", page)
         self.assertNotIn("rates the ratio", page)
         self.assertNotIn("own assumptions", page)
-        self.assertIn("indicative", page)
+        # The tiles show Keel's own NEV on its defaults; the supervisory figure is only in the text, caveated.
+        # Its change is a percentage of a base that can be near zero, and "-269%" once led a page.
+        self.assertIn("NEV ratio after +300bp, Keel defaults", page)
+        self.assertNotIn("NCUA supervisory NEV change", page)
         self.assertIn("not rated here", page)
         self.assertIn("What your own files would change", page)
         self.assertIn("Keel's defaults, not its own", page)

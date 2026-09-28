@@ -42,6 +42,12 @@ def cu_category(ratio):
 def measures_for(positions, a, securities):
     """Every ratio this institution is held to, with its thresholds and status."""
     _, assets, _, equity = engine.opening(positions)
+    # The ratios below are regulatory, so they use net worth, which leaves out
+    # unrealized securities losses. Where the positions already carry
+    # securities at fair value (a call-report build), book equity has taken
+    # those losses and `net_worth_adjustment` puts them back. The at-market
+    # lens further down stays on book equity plus the market-to-book gap.
+    regulatory = equity + getattr(a, "net_worth_adjustment", 0.0)
     rwa = profitability.rwa(positions, a)
     allowance = -sum(p.balance for p in positions if p.side == "asset" and p.balance < 0)
     rows = []
@@ -52,22 +58,22 @@ def measures_for(positions, a, securities):
                      "note": note})
 
     if a.institution == "bank":
-        add("Tier 1 leverage ratio", equity / assets, 0.05, 0.04)
+        add("Tier 1 leverage ratio", regulatory / assets, 0.05, 0.04)
         if rwa:
-            add("Common equity Tier 1 ratio", equity / rwa, 0.065, 0.045)
-            add("Tier 1 risk-based ratio", equity / rwa, 0.08, 0.06)
-            add("Total risk-based ratio", (equity + min(allowance, 0.0125 * rwa)) / rwa, 0.10, 0.08,
+            add("Common equity Tier 1 ratio", regulatory / rwa, 0.065, 0.045)
+            add("Tier 1 risk-based ratio", regulatory / rwa, 0.08, 0.06)
+            add("Total risk-based ratio", (regulatory + min(allowance, 0.0125 * rwa)) / rwa, 0.10, 0.08,
                 "equity plus the allowance, up to 1.25% of risk-weighted assets")
         if assets < 10e9:
-            add("Community bank leverage ratio (if elected)", equity / assets, 0.09, None,
+            add("Community bank leverage ratio (if elected)", regulatory / assets, 0.09, None,
                 "an election for banks under $10 billion; at or above 9% it replaces the risk-based ratios")
         category = None
     else:
-        ratio = equity / assets
+        ratio = regulatory / assets
         category = cu_category(ratio)
         add("Net worth ratio", ratio, 0.07, 0.06, category)
         if assets >= COMPLEX_CU and rwa:
-            add("Risk-based capital ratio", (equity + min(allowance, 0.0125 * rwa)) / rwa, 0.10, 0.08,
+            add("Risk-based capital ratio", (regulatory + min(allowance, 0.0125 * rwa)) / rwa, 0.10, 0.08,
                 "complex credit unions; equity plus the allowance, up to 1.25% of risk-weighted assets")
             add("Complex credit union leverage ratio (if elected)", ratio, 0.09, None,
                 "at or above 9% it replaces the risk-based capital ratio")

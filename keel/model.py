@@ -235,6 +235,11 @@ class Assumptions:
     institution: str = "credit_union"
     tax_rate: float = 0.0       # decimal; credit unions are exempt
     target_capital: float = 0.10  # capital held per dollar of risk-weighted assets, for allocation
+    # Added to book equity for the regulatory capital ratios. Net worth leaves
+    # out unrealized securities losses that a fair-value carrying amount has
+    # already taken out of equity; a call-report build sets it from the
+    # reported net worth. Zero when the positions carry securities at cost.
+    net_worth_adjustment: float = 0.0
     hurdle_rate: float = 0.12   # the return on allocated capital pricing aims for (RAROC)
     fiscal_year_start: int = 1  # the month year-to-date ledger accounts restart
     base_case: str = "flat"     # flat | forward | forecast: where rates go in the plan
@@ -363,6 +368,7 @@ def parse_assumptions(raw):
         drivers=_drivers(raw.get("drivers", []), raw["as_of"], products), noninterest=noninterest,
         institution=institution, tax_rate=_decimal(raw.get("tax_rate", tax_default)),
         target_capital=_decimal(raw.get("target_capital", 10.0)),
+        net_worth_adjustment=float(raw.get("net_worth_adjustment", 0.0)),
         hurdle_rate=_decimal(raw.get("hurdle_rate", 12.0)),
         fiscal_year_start=_fiscal(raw.get("fiscal_year_start", 1)),
         as_of=raw["as_of"], curve=Curve(raw["curve"]), indexes=indexes, products=products,

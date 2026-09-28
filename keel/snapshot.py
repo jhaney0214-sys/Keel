@@ -73,9 +73,14 @@ def tiles(r):
         out += [(pct(nev["ratio"], 1), "NEV ratio after the %sbp shock" % nev["scenario"], ""),
                 (signed(nev["change"], 0), "NEV change in the %sbp shock" % nev["scenario"], "")]
     elif indicative(r):
-        # On default behaviour a rating would be a verdict the data cannot support; show the number, not the grade.
-        out += [(pct(t["post_shock_ratio"], 1), "NCUA supervisory NEV ratio after +300bp, indicative", ""),
-                (signed(-t["sensitivity_value_decline"], 0), "NCUA supervisory NEV change at +300bp, indicative", "")]
+        # From a call report, the supervisory test's standardized share values
+        # meet default terms and prepayment, and the result is not rated (the
+        # Economic value text says why and gives the figure). Its change is a
+        # percentage of a base that can be near zero: "-269%" led one page.
+        # The tiles show the NEV Keel actually models on its defaults.
+        nev = next(x for x in r["nev"] if x["scenario"] == "+300")
+        out += [(pct(nev["ratio"], 1), "NEV ratio after +300bp, Keel defaults", ""),
+                (signed(nev["change"], 0), "NEV change at +300bp, Keel defaults", "")]
     else:
         out += [(pct(t["post_shock_ratio"], 1), "NCUA supervisory NEV ratio after +300bp",
                  chip(RATING[t["ratio_rating"]], t["ratio_rating"] + " risk")),

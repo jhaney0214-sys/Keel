@@ -47,6 +47,26 @@ class Categories(unittest.TestCase):
         self.assertAlmostEqual(cet1["value"], 10e6 / (60e6 + 0.2 * 30e6))
 
 
+class NetWorthNotBookEquity(unittest.TestCase):
+
+    def test_losses_already_in_the_carrying_value_do_not_cut_the_net_worth_ratio(self):
+        """A call-report build carries securities at fair value, so book equity has taken the unrealized loss
+        and net worth has not. Align reported 8.67% and the page said 5.58%, below well capitalized."""
+        book, a = setup(equity=5.6e6)
+        self.assertEqual(capital.measures_for(book, a, [])["category"], "Undercapitalized")
+        a.net_worth_adjustment = 3.1e6
+        c = capital.measures_for(book, a, [])
+        self.assertEqual(c["category"], "Well capitalized")
+        self.assertAlmostEqual(c["rows"][0]["value"], 0.087)
+        # The at-market view is book equity plus the market gap: the adjustment must not reach it.
+        self.assertAlmostEqual(c["lens"]["ratio_now"], 0.056)
+
+    def test_zero_by_default_so_own_files_are_unchanged(self):
+        book, a = setup(equity=6.5e6)
+        self.assertEqual(a.net_worth_adjustment, 0.0)
+        self.assertAlmostEqual(capital.measures_for(book, a, [])["rows"][0]["value"], 0.065)
+
+
 class UnrealizedLosses(unittest.TestCase):
 
     def test_a_rate_shock_cuts_the_market_value_and_the_ratio(self):

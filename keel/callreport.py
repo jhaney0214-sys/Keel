@@ -542,6 +542,16 @@ def build(report, cu, curve=None, prior=None, year_ago=None):
                  "carrying value (available for sale at fair value, held to maturity at its reported fair value), "
                  "and variable-rate loans at par, each group by its own discount spread; every other position "
                  "takes Keel's default spread for its product." % (100 * securities_price) if priced else "")
+    # Regulatory net worth leaves out the unrealized losses a fair-value
+    # carrying amount has already taken from book equity. Without this the
+    # capital page read book equity as the net worth ratio and called
+    # well-capitalized credit unions below well capitalized (Align: 8.67%
+    # reported, 5.58% shown; found 2026-09-28 before any page was sent).
+    if g("net_worth"):
+        raw["net_worth_adjustment"] = round(g("net_worth") - (assets - liabilities), -3)
+        notes.append("Capital: the net worth ratio uses the reported net worth, $%s, which leaves out unrealized "
+                     "securities losses; book equity is $%s." % ("{:,.0f}".format(g("net_worth")),
+                                                                  "{:,.0f}".format(assets - liabilities)))
     raw["notes"]["calibration"] = " ".join(n for n in notes if n)
     ties = {"assets": (assets, sum(r["balance"] for r in rows if r["side"] == "asset")),
             "investment_income": (income, sum(r["balance"] * (short if r["product"] == "cash" else r["rate"] / 100.0)
