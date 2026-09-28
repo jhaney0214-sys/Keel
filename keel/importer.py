@@ -422,7 +422,7 @@ def _ties(gl, loans, certs, shares, securities, borrowings, accounts=None):
 def write_positions(positions, path):
     fields = ["id", "name", "product", "side", "balance", "rate", "rate_type", "index", "margin",
               "reset_months", "next_reset_months", "term_months", "amortization", "amort_months",
-              "call_months", "floor", "cap"]
+              "call_months", "floor", "cap", "discount_spread"]
     with open(path, "w", encoding="utf-8", newline="") as handle:
         w = csv.writer(handle)
         w.writerow(fields)
@@ -432,4 +432,5 @@ def write_positions(positions, path):
                         p.reset_months or "", p.next_reset_months or "", p.term_months or "",
                         p.amortization, p.amort_months or "", p.call_months or "",
                         "%.4f" % (100 * p.floor) if p.floor is not None else "",
-                        "%.4f" % (100 * p.cap) if p.cap is not None else ""])
+                        "%.4f" % (100 * p.cap) if p.cap is not None else "",
+                        "%.4f" % (100 * p.discount_spread) if p.discount_spread is not None else ""])

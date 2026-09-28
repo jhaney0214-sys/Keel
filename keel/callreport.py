@@ -74,7 +74,7 @@ A = {
     "loans": "ACCT_025B", "allowance_cecl": "ACCT_AS0048", "allowance": "ACCT_719", "land": "ACCT_007",
     "fixed": "ACCT_008", "ncusif": "ACCT_794", "foreclosed": "ACCT_798A", "other_assets": "ACCT_AS0036",
     "inv_1": "ACCT_NV0153", "inv_3": "ACCT_NV0154", "inv_5": "ACCT_NV0155", "inv_10": "ACCT_NV0156",
-    "inv_long": "ACCT_NV0157",
+    "inv_long": "ACCT_NV0157", "htm_cost": "ACCT_NV0081", "htm_fair": "ACCT_801",
     "new_auto": "ACCT_385", "used_auto": "ACCT_370", "card": "ACCT_396", "unsecured": "ACCT_397",
     "mtg_long": "ACCT_RL0002", "mtg_15": "ACCT_RL0005", "mtg_balloon_long": "ACCT_RL0008",
     "mtg_balloon_5": "ACCT_RL0011", "mtg_arm": "ACCT_RL0014", "first_total": "ACCT_RL0016",
@@ -331,10 +331,21 @@ def build(report, cu, curve=None, prior=None, year_ago=None):
     for r in loan_rows:
         r[3] = r[3] or average
     reported = yearly("loan_interest") - yearly("interest_refunded")
-    implied = sum(r[2] * r[3] / 100.0 for r in loan_rows)
-    loan_scale = reported / implied if implied and reported > 0 else 1.0
+    # Only the fixed lines are scaled. A variable loan already earns today's
+    # index plus its margin, so the most common rate is its rate; the gap to
+    # reported interest is the seasoned fixed book. Found when scaling every
+    # line valued HELOCs and ARMs 5-10% under par, 0.8-3.4% of assets.
+    floating = sum(r[2] * r[3] / 100.0 for r in loan_rows if r[6].get("variable"))
+    implied = sum(r[2] * r[3] / 100.0 for r in loan_rows if not r[6].get("variable"))
+    if implied and reported - floating > 0:
+        loan_scale = (reported - floating) / implied
+    else:
+        # Too little fixed income to carry the difference: scale everything, as before.
+        floating, implied = 0.0, sum(r[2] * r[3] / 100.0 for r in loan_rows)
+        loan_scale = reported / implied if implied and reported > 0 else 1.0
     for product, key, balance, rate, term, amortization, extra in loan_rows:
-        rate = rate * loan_scale
+        if not extra.get("variable") or not floating:
+            rate = rate * loan_scale
         kind = "fixed"
         variable = extra.get("variable")
         kw = {}
@@ -350,9 +361,9 @@ def build(report, cu, curve=None, prior=None, year_ago=None):
         add("%s_%s" % (product, key), key.replace("_", " "), product, "asset", balance, round(rate, 3), kind,
             term, amortization, **kw)
         loan_rows_all.append({"product": product, "side": "asset"})
-    notes.append("Loan rates: the call report's most common rate for each loan type, scaled by %.3f so the "
+    notes.append("Loan rates: the call report's most common rate for each loan type, %s scaled by %.3f so the "
                  "portfolio earns the $%s a year of loan interest reported (%s)." % (
-                     loan_scale, "{:,.0f}".format(reported), basis))
+                     "the fixed-rate ones" if floating else "all", loan_scale, "{:,.0f}".format(reported), basis))
 
     # ---- investments and cash
     cash = g("cash")
@@ -514,6 +525,25 @@ def build(report, cu, curve=None, prior=None, year_ago=None):
                             {"name": "ramp -200", "shock_bp": -200, "ramp_months": 12}],
         "liquidity": {"stress_months": 3, "contingent": capacity},
     }
+    # NEV prices: a position whose value the call report gives is discounted so
+    # it is worth that value today. Securities are carried at fair value (held
+    # to maturity at cost, with its fair value beside it), and a variable loan
+    # earns today's index plus margin, so it is worth par. Without this the
+    # below-market yield of a book already marked to market took its loss a
+    # second time: up to 2% of assets.
+    securities_price = 1.0
+    if investments and g("htm_cost") > 0 and g("htm_fair") > 0:
+        securities_price = (investments + g("htm_fair") - g("htm_cost")) / investments
+    groups = [([r["id"]], 1.0) for r in rows if r["side"] == "asset" and r["rate_type"] == "variable"]
+    groups.append(([r["id"] for r in rows if r["product"] in ("investments", "mortgage_securities")],
+                   securities_price))
+    priced = price_to(rows, raw, groups)
+    notes.append("NEV: securities are valued at the %s the call report gives (%.1f%% of carrying value) and "
+                 "variable-rate loans at par, each by its own discount spread; every other position at Keel's "
+                 "default spread for its product." % (
+                     "fair value" if securities_price != 1.0 else "carrying value, fair value for those available "
+                     "for sale,", 100 * securities_price) if priced else "")
+    raw["notes"]["calibration"] = " ".join(n for n in notes if n)
     ties = {"assets": (assets, sum(r["balance"] for r in rows if r["side"] == "asset")),
             "investment_income": (income, sum(r["balance"] * (short if r["product"] == "cash" else r["rate"] / 100.0)
                                               for r in rows if r["product"] in
@@ -526,6 +556,43 @@ def build(report, cu, curve=None, prior=None, year_ago=None):
             "dividends": (dividends, sum(r["balance"] * r["rate"] / 100.0 for r in rows
                                          if r["side"] == "liability" and r["product"] != "borrowings"))}
     return rows, raw, ties
+
+
+def price_to(rows, raw, groups):
+    """For each (row ids, price) in `groups`, set one `discount_spread`
+    (percent) on those rows so that together their base-scenario NEV is the
+    price times their balance. One spread for a group, not one a row, so a
+    loss is spread over the book by duration instead of forced onto every
+    maturity band alike. Returns how many rows were set."""
+    from keel import measures, model
+    a = model.parse_assumptions(raw)
+    base = next(s for s in a.scenarios if s.name == "base")
+    by_id = {r["id"]: r for r in rows}
+    done = 0
+    for ids, price in groups:
+        members = [(by_id[i], model.Position(
+            id=r["id"], name=r["name"], product=r["product"], side=r["side"], balance=r["balance"],
+            rate=r["rate"] / 100.0, rate_type=r["rate_type"], index=r.get("index", ""),
+            margin=r.get("margin", 0.0) / 100.0, reset_months=r.get("reset_months", 0),
+            term_months=r.get("term_months", 0), amortization=r["amortization"],
+            amort_months=r.get("amort_months", 0)))
+            for i in ids for r in [by_id[i]] if r["balance"] > 0 and r["rate_type"] != "none"]
+        if not members:
+            continue
+        target = price * sum(p.balance for _, p in members)
+        low, high = -0.10, 0.30          # value falls as the spread rises
+        for _ in range(40):
+            spread = (low + high) / 2.0
+            for _, p in members:
+                p.discount_spread = spread
+            if measures.nev([p for _, p in members], a, base).pv_assets > target:
+                low = spread
+            else:
+                high = spread
+        for r, _ in members:
+            r["discount_spread"] = round(100.0 * (low + high) / 2.0, 4)
+        done += len(members)
+    return done
 
 
 def _yoy(now, then, cu, key):
@@ -580,7 +647,7 @@ def _index_rate(index, curve):
 def write(folder, rows, raw, peer=None):
     os.makedirs(folder, exist_ok=True)
     head = ["id", "name", "product", "side", "balance", "rate", "rate_type", "index", "margin", "reset_months",
-            "term_months", "amortization", "floor", "cap", "amort_months"]
+            "term_months", "amortization", "floor", "cap", "amort_months", "discount_spread"]
     with open(os.path.join(folder, "positions.csv"), "w", encoding="utf-8", newline="") as handle:
         w = csv.writer(handle)
         w.writerow(head)

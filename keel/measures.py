@@ -92,7 +92,8 @@ def nev(positions, assumptions, scenario, supervisory=False):
             # A position with no maturity at all (FHLB stock, a CUSO stake) is
             # redeemed at par, so it counts at book, not as a perpetuity. Found
             # when FHLB stock paying 7% valued at 150% of book.
-            spread = assumptions.products[p.product].discount_spread
+            spread = (p.discount_spread if p.discount_spread is not None
+                      else assumptions.products[p.product].discount_spread)
             value = 0.0
             for k, f in enumerate(flows[p.id], 1):
                 y = scenario.rate(assumptions.curve, 0, k) / 100.0 + spread

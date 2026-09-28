@@ -227,7 +227,8 @@ python -m keel callreport call-report-data-2026-06.zip --cu 12345 --run
 The folder it builds has the credit union's own balances by loan, share,
 investment and borrowing line, tied to its reported total assets and
 liabilities; loan and share rates calibrated so they earn and cost exactly
-the interest and dividends it reported; and Keel's default behaviour,
+the interest and dividends it reported; securities and variable-rate loans
+valued in NEV at what the call report says they are worth; and Keel's default behaviour,
 terms and costs, which the notes say plainly. `peers.json` holds twelve
 ratios against its NCUA peer group, and the report shows them. It is a
 first look from public data, not a substitute for the credit union's own
@@ -247,6 +248,24 @@ Keel's quarterly NII came within a median 2.9% of the reported figure,
 against 3.1% for repeating last quarter, and was closer for 60% of credit
 unions (75% of those over $1 billion). It is also closer on assets, loans
 and shares; on the change in net worth it is no better than naive.
+
+## A two-page snapshot
+
+```bash
+python -m keel snapshot examples/cu-12345 --contact "A. Analyst, analyst@example.com"
+```
+
+`report/snapshot.html` is the report cut to what a first look needs: six
+headline numbers, the earnings, economic value, liquidity and capital
+findings, NII and NEV by scenario, the repricing gap, peers when the folder
+has them, what the figures are built from, and a closing offer that ends
+on `--contact`. It shows no policy limits, since a call report does not
+carry the board's. **On a call-report folder it grades nothing:** behaviour
+is Keel's defaults, so the NCUA supervisory figures are shown as indicative,
+without a Low, Moderate or High rating, and the page says so at the top.
+Keep snapshots of real credit unions in `private/`; they are models built on
+guesses about a named institution, for sending to that institution, not for
+publishing.
 
 ## A second opinion on another model
 

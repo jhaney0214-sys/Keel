@@ -68,6 +68,11 @@ def main(argv=None):
                                                   "the latest quarter")
     cr.add_argument("--year-ago", default=None, help="the zip from four quarters earlier: set loan and share growth "
                                                      "from this credit union's year and its peer group's")
+    snap = sub.add_parser("snapshot", help="a two-page rate-risk snapshot, for a first look or an introduction")
+    snap.add_argument("folder")
+    snap.add_argument("--out", default=None, help="default: <folder>/report/snapshot.html")
+    snap.add_argument("--name", default=None, help="default: the first sentence of the assumptions' notes")
+    snap.add_argument("--contact", default="[Your name], [contact]", help="the closing line: who to reply to")
     cmp_ = sub.add_parser("compare", help="a second opinion: Keel beside another ALM model's figures on the same book")
     cmp_.add_argument("folder")
     cmp_.add_argument("other", nargs="?", help="the other model's figures (measure, scenario, value)")
@@ -154,10 +159,10 @@ def main(argv=None):
         print(validate.chain_text(result))
         print("rows and summary -> %s" % args.out)
         return 0
-    if args.command in ("price", "newproduct", "swap", "special", "query", "callreport"):
+    if args.command in ("price", "newproduct", "swap", "special", "query", "callreport", "snapshot"):
         try:
             return {"price": run_price, "newproduct": run_newproduct, "swap": run_swap, "special": run_special,
-                    "query": run_query,
+                    "query": run_query, "snapshot": run_snapshot,
                     "callreport": run_callreport}[args.command](args)
         except model.InputError as error:
             print("input error: %s" % error, file=sys.stderr)
@@ -271,6 +276,16 @@ def run_callreport(args):
     print("Behaviour and terms are Keel's defaults; see the notes in %s." % os.path.join(out, "assumptions.json"))
     if args.run:
         return main(["run", out])
+    return 0
+
+
+def run_snapshot(args):
+    from keel import snapshot
+    positions, assumptions, _, imported = load(args.folder)
+    name = args.name or assumptions.notes.get("about", "Credit union").split(".")[0].split(" (")[0].strip()
+    out = args.out or os.path.join(args.folder, "report", "snapshot.html")
+    r = snapshot.build(positions, assumptions, out, name, args.folder, args.contact, imported)
+    print("snapshot -> %s  (year-one NII %s)" % (out, "{:,.0f}".format(r["nii_base"]["y1"])))
     return 0
 
 

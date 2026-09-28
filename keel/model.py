@@ -6,7 +6,8 @@ positions.csv, one row per instrument or pool:
     id, name, product, side (asset | liability), balance, rate (annual %),
     rate_type (fixed | variable | administered | none), index, margin,
     reset_months, term_months (remaining), amortization
-    (level | bullet | nonmaturity | none), floor, cap
+    (level | bullet | nonmaturity | none), floor, cap; optionally
+    discount_spread, the NEV discount spread for this position alone
 
 assumptions.json: the curve, each product's behaviour (prepayment, decay,
 beta, new-business terms, growth), income and expense, and the liquidity
@@ -52,6 +53,7 @@ class Position:
     new_business: bool = False
     loan_age: int = None        # months since origination at the analysis date; None: fully seasoned
     in_money_months: int = 0    # months spent worth refinancing, for burnout
+    discount_spread: float = None  # decimal; NEV discount spread over the product's, when set
 
     def copy(self):
         return dataclasses.replace(self)
@@ -83,7 +85,8 @@ def read_positions(path):
             floor=_pct(row.get("floor")), cap=_pct(row.get("cap")),
             amort_months=_int(row.get("amort_months")), call_months=_int(row.get("call_months")),
             next_reset_months=_int(row.get("next_reset_months")),
-            loan_age=None if not (row.get("loan_age") or "").strip() else _int(row.get("loan_age")))
+            loan_age=None if not (row.get("loan_age") or "").strip() else _int(row.get("loan_age")),
+            discount_spread=_pct(row.get("discount_spread")))
         if p.id in seen:
             raise InputError("%s: id %r appears twice" % (where, p.id))
         seen.add(p.id)

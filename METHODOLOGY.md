@@ -530,8 +530,19 @@ allowance (AS0048, or 719) + land and buildings (007) + other fixed assets
 (AS0036), with any remainder in other assets. On the June 2026 cycle that
 identity is exact for 94% of credit unions, and after the remainder every
 one of the 4,299 ties to within a cent. The call report's loan rates are the
-most common rate by type, so they are scaled together to the reported loan
-interest; share rates are not reported, so typical relative rates are
+most common rate by type. The fixed-rate lines are scaled together to the
+reported loan interest, net of what the variable-rate lines earn at their
+reported rates: a variable loan already earns today's index plus its
+margin, so the gap is the seasoned fixed book (when the fixed lines cannot
+carry it, every line is scaled). NEV values what the call report values
+the same way: securities, carried at fair value (held to maturity at cost,
+with fair value reported beside it), take one discount spread across the
+book so together they are worth that fair value today, and each
+variable-rate loan line is discounted to par; every other position takes
+its product's default spread. Scaling every line, and discounting
+securities on a book already marked to market, had valued HELOCs and ARMs
+5-10% under par and taken securities losses twice, together up to about 4%
+of assets. Share rates are not reported, so typical relative rates are
 scaled to the reported dividends; charge-off rates are scaled to reported
 net charge-offs. Year-to-date income is annualized by days (365 over the
 days the cycle covers; the first quarter has 90). Securities and other

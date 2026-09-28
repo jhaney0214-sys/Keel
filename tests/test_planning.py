@@ -211,16 +211,17 @@ class History(unittest.TestCase):
 
 # --------------------------------------------------------------- the call report
 
-def ncua_zip(path, cycle="6/30/2026", ytd=1.0, size=1.0):
+def ncua_zip(path, cycle="6/30/2026", ytd=1.0, size=1.0, heloc=0.0):
     """Three credit unions in NCUA's layout: FOICU, two FS220 tables (one
     with a mixed-case header, as FS220N really has), June cycle. `ytd`
     scales the year-to-date income and expense, `size` the balances, so a
-    March cycle can be made beside it."""
+    March cycle can be made beside it. `heloc` moves that much of the
+    mortgages into variable-rate HELOCs at 8%."""
     foicu = ['"CU_NUMBER","CYCLE_DATE","CU_NAME","CITY","STATE","Peer_Group"']
     fs220 = ['"CU_NUMBER","CYCLE_DATE","ACCT_010","ACCT_AS0009","ACCT_AS0013","ACCT_025B","ACCT_385","ACCT_523",'
              '"ACCT_RL0002","ACCT_563A","ACCT_018","ACCT_657","ACCT_908C","ACCT_908A","ACCT_110","ACCT_120",'
              '"ACCT_380","ACCT_115","ACCT_350","ACCT_117","ACCT_671","ACCT_661A","ACCT_LI0069","ACCT_997",'
-             '"ACCT_NV0153","ACCT_860C","ACCT_860A","ACCT_340"']
+             '"ACCT_NV0153","ACCT_860C","ACCT_860A","ACCT_340"' + (',"ACCT_RL0028","ACCT_562A"' if heloc else '')]
     fs220n = ['"CU_Number","CYCLE_DATE","ACCT_AS0048","ACCT_AS0036"']
     cus = (("1", "ALPHA", 100e6, 1.0), ("2", "BETA", 120e6, 1.2), ("3", "GAMMA", 90e6, 0.9))
     for cu, name, assets, f in cus:
@@ -232,9 +233,10 @@ def ncua_zip(path, cycle="6/30/2026", ytd=1.0, size=1.0):
         shares, borrowed = 85e6 * f, 3e6 * f
         fi = f_income
         fs220.append(",".join(str(x) for x in (
-            cu, cycle + " 0:00:00", assets, cash, sec, loans, 20e6 * f, 525, 40e6 * f, 600, shares, 50e6 * f,
+            cu, cycle + " 0:00:00", assets, cash, sec, loans, 20e6 * f, 525, (40e6 - heloc) * f, 600, shares, 50e6 * f,
             35e6 * f, 30e6 * f, 1.6e6 * fi, 0.5e6 * fi, 0.9e6 * fi, 2.1e6 * fi, 0.95e6 * fi, 0.6e6 * fi,
-            1.4e6 * fi, 0.3e6 * fi, shares + borrowed, 10e6 * f, 25e6 * f, borrowed, borrowed, 0.07e6 * fi)))
+            1.4e6 * fi, 0.3e6 * fi, shares + borrowed, 10e6 * f, 25e6 * f, borrowed, borrowed, 0.07e6 * fi)
+            + ((heloc * f, 800) if heloc else ())))
         fs220n.append("%s,%s 0:00:00,%s,%s" % (cu, cycle, allowance, other))
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("FOICU.txt", "\n".join(foicu))
@@ -292,6 +294,60 @@ class CallReport(unittest.TestCase):
             z.writestr("x.txt", "nothing")
         with self.assertRaises(model.InputError):
             callreport.CallReport(bad)
+
+
+class CallReportPrices(unittest.TestCase):
+    """NEV prices on a call-report build: what the call report values, Keel values the same."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.path = os.path.join(cls.tmp, "call-report-data-2026-06.zip")
+        ncua_zip(cls.path, heloc=15e6)
+        cls.report = callreport.CallReport(cls.path)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp)
+
+    def build(self):
+        rows, raw, ties = callreport.build(self.report, "1")
+        folder = os.path.join(self.tmp, "cu-1")
+        callreport.write(folder, rows, raw)
+        a = model.parse_assumptions(raw)
+        positions = model.read_positions(os.path.join(folder, "positions.csv"))
+        return rows, raw, ties, a, positions, measures.nev(positions, a, next(s for s in a.scenarios
+                                                                               if s.name == "base"))
+
+    def test_only_fixed_loans_are_scaled_to_the_reported_interest(self):
+        """A variable loan earns today's index plus margin: its reported rate stands, the fixed book absorbs the rest."""
+        rows, raw, ties, *_ = self.build()
+        heloc = next(r for r in rows if r["rate_type"] == "variable")
+        self.assertAlmostEqual(heloc["rate"], 8.0, places=3)
+        self.assertAlmostEqual(ties["loan_interest"][1] / ties["loan_interest"][0], 1.0, places=3)
+        self.assertIn("the fixed-rate ones", raw["notes"]["calibration"])
+
+    def test_variable_loans_and_securities_are_worth_what_the_call_report_says(self):
+        """Securities are already at fair value on the call report; a below-market yield must not take the loss again."""
+        rows, raw, ties, a, positions, nev = self.build()
+        for p in positions:
+            if p.rate_type == "variable":
+                self.assertAlmostEqual(nev.by_position[p.id] / p.balance, 1.0, places=4)
+        held = [p for p in positions if p.product in ("investments", "mortgage_securities")]
+        self.assertTrue(held)
+        self.assertEqual(len({p.discount_spread for p in held}), 1)          # one spread for the book
+        self.assertAlmostEqual(sum(nev.by_position[p.id] for p in held) / sum(p.balance for p in held), 1.0,
+                               places=4)
+        fixed = next(p for p in positions if p.product == "first_mortgage")
+        self.assertIsNone(fixed.discount_spread)                             # nothing observed: the default
+
+    def test_a_position_discount_spread_overrides_its_products(self):
+        rows, raw, ties, a, positions, nev = self.build()
+        p = next(p for p in positions if p.product == "first_mortgage")
+        base = next(s for s in a.scenarios if s.name == "base")
+        before = measures.nev([p], a, base).pv_assets
+        p.discount_spread = a.products[p.product].discount_spread + 0.01
+        self.assertLess(measures.nev([p], a, base).pv_assets, before)
 
 
 class Validation(unittest.TestCase):
