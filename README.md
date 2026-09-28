@@ -274,6 +274,15 @@ Keep snapshots of real credit unions in `private/`; they are models built on
 guesses about a named institution, for sending to that institution, not for
 publishing.
 
+**Printed, it is four pages, not two (checked 2026-09-28).** Edge's headless
+print of `examples/mid-cu/report/snapshot.html` (`msedge --headless=new
+--no-pdf-header-footer --print-to-pdf=…`, Letter) gave four pages, with the
+Policy limits heading alone at the foot of page 1 and its table on page 2.
+Nothing was clipped. The same command caught a clipped table and two half-empty
+pages in Abeyance's report the same day, so it does see layout faults. Before a
+snapshot goes to a CFO as a PDF, either fit it to two pages in print CSS or stop
+calling it two pages.
+
 ## A second opinion on another model
 
 ```bash
