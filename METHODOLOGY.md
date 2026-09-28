@@ -621,6 +621,22 @@ the population; it is not automated. After the fixes, 11 of 40 rate High and
 say whether that is right. Until NEV is compared with a production model's
 on real files, treat call-report NEV as unvalidated.
 
+**Nor does it score capital, and that gap reached an outreach page.** Later
+the same day, building the first 24 snapshots to send to credit unions, three
+said "below well capitalized" of credit unions that reported well-capitalized
+net worth ratios (Align 8.67% reported, 5.58% shown; Ocean Financial 8.17%
+and 5.83%; Cornerstone Community 7.62% and 5.85%). A call-report build carries
+securities at fair value, so book equity had already taken the unrealized
+losses that regulatory net worth leaves out, and the capital page read book
+equity as net worth. 217 tests and the green scorecard passed throughout. It
+was found by setting each page's capital line beside the ratio the credit
+union itself reports (`ACCT_998`), before anything was sent; the fix is
+`net_worth_adjustment`, and `tests/test_capital.py` fails with the old line
+restored. **Before any page about a named credit union leaves this
+repository, check each statement it makes about that credit union against
+the figure the credit union itself reports.** The scorecard measures
+forecasting, and a page makes claims the scorecard never sees.
+
 ## Second opinion
 
 `keel compare` (`keel/compare.py`) sets Keel's figures beside another ALM
