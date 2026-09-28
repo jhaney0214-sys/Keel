@@ -334,6 +334,15 @@ class Validation(unittest.TestCase):
         s = r["summary"]["all"]["nii"]
         self.assertIn("keel_closer", s)
 
+    def test_growth_blends_the_credit_unions_year_and_its_peers(self):
+        march, june = callreport.CallReport(self.march), callreport.CallReport(self.june)
+        rates = callreport.growth_rates(june, march, "1")      # the test's "year ago" is March: 2% growth
+        self.assertAlmostEqual(rates["loans"], 2.0, places=2)   # own 2%, peers 2%
+        rows, raw, _ = callreport.build(june, "1", year_ago=march)
+        self.assertAlmostEqual(raw["products"]["new_auto"]["growth"], 2.0, places=2)
+        self.assertAlmostEqual(raw["products"]["certificates"]["growth"], 2.0, places=2)
+        self.assertIn("peer group", raw["notes"]["calibration"])
+
     def test_the_chain_needs_later_reports(self):
         with self.assertRaises(model.InputError):
             validate.run(self.june, self.march)

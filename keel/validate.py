@@ -52,10 +52,11 @@ def _nii_ytd(report, cu):
     return report.get(cu, "interest_income") - report.get(cu, "interest_expense")
 
 
-def forecast(earlier, cu, months, base_case="flat", prior=None):
+def forecast(earlier, cu, months, base_case="flat", prior=None, year_ago=None):
     """Keel's forecast for `cu` `months` ahead, from the earlier cycle
-    (calibrated on its latest quarter when `prior` is given)."""
-    rows, raw, _ = callreport.build(earlier, cu, prior=prior)
+    (calibrated on its latest quarter when `prior` is given, with growth
+    from the past year when `year_ago` is)."""
+    rows, raw, _ = callreport.build(earlier, cu, prior=prior, year_ago=year_ago)
     raw["base_case"] = base_case
     a = model.parse_assumptions(raw)
     positions = positions_from(rows)
@@ -69,9 +70,11 @@ def forecast(earlier, cu, months, base_case="flat", prior=None):
             "net_worth_change": end.equity - opening_equity}
 
 
-def run(earlier_path, later_path, limit=None, base_case="flat", min_assets=0.0, prior_path=None):
+def run(earlier_path, later_path, limit=None, base_case="flat", min_assets=0.0, prior_path=None,
+        year_ago_path=None):
     earlier, later = callreport.CallReport(earlier_path), callreport.CallReport(later_path)
     prior = callreport.CallReport(prior_path) if prior_path else None
+    year_ago = callreport.CallReport(year_ago_path) if year_ago_path else None
     latest = prior is not None and prior.as_of[:4] == earlier.as_of[:4]
     months = later.months - earlier.months if later.as_of[:4] == earlier.as_of[:4] else later.months
     if months <= 0:
@@ -88,7 +91,7 @@ def run(earlier_path, later_path, limit=None, base_case="flat", min_assets=0.0, 
             skipped["no assets"] = skipped.get("no assets", 0) + 1
             continue
         try:
-            f = forecast(earlier, cu, months, base_case, prior if latest else None)
+            f = forecast(earlier, cu, months, base_case, prior if latest else None, year_ago)
         except (InputError, ValueError, ZeroDivisionError) as error:
             key = type(error).__name__
             skipped[key] = skipped.get(key, 0) + 1
@@ -197,7 +200,8 @@ def run_chain(paths, base_case="flat", latest=True):
     """Each consecutive pair of call reports, and every pair's rows pooled.
     With `latest`, each build and naive forecast uses the latest quarter the
     reports show, not the year to date."""
-    pairs = [run(a, b, base_case=base_case, prior_path=(paths[i - 1] if latest and i > 0 else None))
+    pairs = [run(a, b, base_case=base_case, prior_path=(paths[i - 1] if latest and i > 0 else None),
+                 year_ago_path=(paths[i - 4] if latest and i >= 4 else None))
              for i, (a, b) in enumerate(zip(paths, paths[1:]))]
     pooled = []
     for p in pairs:

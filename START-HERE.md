@@ -112,12 +112,25 @@ assumptions that produced it all. `report/results.xlsx` has every table.
 `python -m keel serve "../Riverbend FCU"` (or `windows\Keel app.cmd`) opens
 the what-if, pricing, new-product, trade and explore pages in your browser.
 
+## 6. Compare with your current model
+
+```bash
+python -m keel compare "../Riverbend FCU" --template vendor.csv
+python -m keel compare "../Riverbend FCU" vendor.csv --name "Our vendor model"
+```
+
+The template lists every figure Keel can compare. Fill in the ones your
+current ALM report states (NII by scenario, NEV and its ratio, the opening
+balances) and the second command writes `report/second-opinion.html`: each
+figure side by side, within or outside tolerance, and where to look first
+for each kind of difference.
+
 ## What to trust, and what not yet
 
 Keel's projection is checked by its own reconciliation on every run, and
 its quarterly forecasts have been scored against NCUA call reports for every
-credit union over five quarters (METHODOLOGY.md, "Validation against NCUA
-call reports"). It has **not** yet been compared side by side with a
+credit union every quarter since June 2024 (VALIDATION.md has the current
+record). It has **not** yet been compared side by side with a
 production ALM model on the same institution's files. Until it has, run it
 beside your current model, and investigate every difference before relying
 on either.

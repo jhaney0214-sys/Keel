@@ -543,9 +543,15 @@ that share of the cash earns and the rest is kept as liquid, non-earning
 cash; over it, all the cash earns and the securities the remainder. With
 `--prior`, the previous quarter's report in the same year, interest income
 and expense are the latest quarter's at an annual rate (a year-to-date
-average lags when margins move), and loan growth is the credit union's own
-over that quarter; fees, operating expense and charge-offs stay year to date,
-because a single quarter of them is lumpy.
+average lags when margins move); fees, operating expense and charge-offs
+stay year to date, because a single quarter of them is lumpy. With
+`--year-ago`, the report four quarters earlier, loan and share growth are
+half the credit union's own growth over the year (clamped to -20% and
++30%) and half its NCUA peer group's median. Tested over four quarters of
+every credit union against Keel's fixed defaults, the latest quarter
+annualized, the credit union's own year alone and the peer median alone,
+the blend forecast next quarter's loans, shares and assets best; the
+latest quarter annualized was the worst, too noisy and seasonal.
 
 ## Validation against NCUA call reports
 
@@ -556,33 +562,26 @@ later year-to-date less the earlier, with Keel's quarter set to the
 quarter's actual days), total assets, loans, shares, and the change in net
 worth (in basis points of assets). Each is compared with a naive forecast:
 the latest quarter's NII and net income repeated and balances unchanged.
+`tools/quarterly_scorecard.py` runs it over every quarter from June 2024,
+fetching new call reports and Treasury curves as they are published, and
+writes **VALIDATION.md**, the current record (aggregate figures only), and
+`validation-history.csv`, its headline each quarter.
 
-Over the five quarters from March 2025 to June 2026 (21,866 credit-union
-quarters, every federally insured credit union, calibrated on the latest
-quarter), median absolute error and median signed error, in percent:
+Through June 2026, over the latest four quarters (17,411 credit-union
+quarters, calibrated on the latest quarter with growth from the past year),
+Keel's quarterly NII has a median error of 2.9% against 3.1% naive and is
+closer for 60% of credit unions (75% of those over $1 billion); it is also
+closer on assets, loans and shares, and no better than naive on the change
+in net worth. What the record says:
 
-| | Keel | Naive | Keel closer |
-|---|---|---|---|
-| Quarter NII | 3.19, bias -1.12 | 3.47, bias -1.77 | 63% |
-| Total assets | 1.42, bias +0.19 | 1.49, bias -0.51 | 54% |
-| Loans | 1.98, bias +0.41 | 2.02, bias -0.14 | 51% |
-| Shares | 1.63, bias +0.21 | 1.65, bias -0.35 | 51% |
-| Net worth change (bp of assets) | 8.63, bias +0.01 | 8.26, bias -0.49 | 50% |
-
-By size, Keel is closer on NII for 78% of credit unions over $1 billion,
-70% of those from $100 million to $1 billion, 59% from $10 million to $100
-million and 53% under $10 million, whose quarters are noisy enough that
-nothing forecasts them well. What it says:
-
-- **NII is where the model earns its keep**, and more so the larger the
-  institution. It still under-forecasts slightly (about 1%) in every
-  quarter of a period when margins were widening: interest expense is
-  forecast to within a fraction of a percent; the miss is interest income,
-  which grew faster than new business at default spreads replaces the book.
-- **Balances are a coin toss one quarter out**, with or without a model:
-  share growth is seasonal (tax refunds in the first quarter), which a
-  model on annual growth rates does not see; pooled over the year its bias
-  is near zero.
+- **Interest expense and loan interest are forecast to within about 1%.**
+  Most of the remaining NII error is investment income, which moves with
+  rates inside the quarter, and which a forecast made at its start cannot
+  know: Keel ran high in a quarter of cuts and low in one where one- and
+  two-year rates rose. Neither a forward-curve base case nor pricing new
+  loans at the call report's reported rates helped, so neither was kept.
+- **Balances beat "nothing changes" once growth comes from the past year**
+  and the peer group, not fixed defaults.
 - **Net worth change is no better than repeating last quarter**, because it
   is dominated by fees, expenses and provisions, which the plan carries as
   flat annual rates.
@@ -592,10 +591,20 @@ code where it was fixed: cash earned the short rate on top of an investment
 yield already spread over it (the smallest, cash-heavy credit unions' NII
 came out 7-9% high); other investments were left out of the earning
 portfolio; income was annualized by months, not days; and a year-to-date
-average was used where the latest quarter was available. Pricing new loans
-at the call report's most common rates was tried and made no difference,
-so it was not kept. The per-credit-union rows name real institutions on
-default behaviour, so they are written to the git-ignored `private/`.
+average was used where the latest quarter was available. The per-credit-
+union rows name real institutions on default behaviour, so they are written
+to the git-ignored `private/`.
+
+## Second opinion
+
+`keel compare` (`keel/compare.py`) sets Keel's figures beside another ALM
+model's on the same book: opening balances, NII in years one and two, NEV
+and the NEV ratio, and their changes, by scenario. Each is within or outside
+a tolerance (0.1% on balances, 3% on year-one NII, 5% on year two, 10% on
+NEV, 1.5 points on the NEV ratio, 2 to 5 points on changes under shock), and
+the differences outside are sorted into kinds with where to look for each:
+the opening book first, then the base NII, shocked NII, base NEV and
+shocked NEV. It says where two sound models part, not which is right.
 
 ## Bank mode
 

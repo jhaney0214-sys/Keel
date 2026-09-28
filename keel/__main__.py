@@ -64,8 +64,16 @@ def main(argv=None):
     cr.add_argument("--curve", default=None, help="a JSON file of {tenor months: rate percent}, when Keel does "
                                                   "not have the cycle date's Treasury curve")
     cr.add_argument("--run", action="store_true", help="run the report straight after building the folder")
-    cr.add_argument("--prior", default=None, help="the previous quarter's zip: calibrate interest on the latest "
-                                                  "quarter and take loan growth from it")
+    cr.add_argument("--prior", default=None, help="the previous quarter's zip, same year: calibrate interest on "
+                                                  "the latest quarter")
+    cr.add_argument("--year-ago", default=None, help="the zip from four quarters earlier: set loan and share growth "
+                                                     "from this credit union's year and its peer group's")
+    cmp_ = sub.add_parser("compare", help="a second opinion: Keel beside another ALM model's figures on the same book")
+    cmp_.add_argument("folder")
+    cmp_.add_argument("other", nargs="?", help="the other model's figures (measure, scenario, value)")
+    cmp_.add_argument("--template", default=None, help="write a blank template to this path instead")
+    cmp_.add_argument("--name", default="The other model", help="what to call the other model on the page")
+    cmp_.add_argument("--out", default=None, help="default: <folder>/report/second-opinion.html")
     ini = sub.add_parser("init", help="a starter folder with every input file, ready to fill with your own data")
     ini.add_argument("folder")
     ini.add_argument("--bank", action="store_true", help="a bank rather than a credit union")
@@ -89,6 +97,36 @@ def main(argv=None):
             print("input error: %s" % error, file=sys.stderr)
             return 2
         print("%s -> %s" % (args.source, args.target))
+        return 0
+    if args.command == "compare":
+        from keel import compare, results as results_module
+        if not args.template and not args.other:
+            print("give the other model's figures, or --template <path> for a blank one", file=sys.stderr)
+            return 2
+        try:
+            positions, assumptions, _, imported = load(args.folder)
+            r = results_module.compute(positions, assumptions, os.path.basename(os.path.abspath(args.folder)),
+                                       imported, None, assumption_tests=False)
+            if args.template:
+                n = compare.write_template(args.template, positions, assumptions, r)
+                print("template with %d figures -> %s (fill in the value column from the other model's report)"
+                      % (n, args.template))
+                return 0
+            rows, notes = compare.compare(positions, assumptions, r, compare.read_other(args.other))
+        except model.InputError as error:
+            print("input error: %s" % error, file=sys.stderr)
+            return 2
+        out = args.out or os.path.join(args.folder, "report", "second-opinion.html")
+        os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+        from keel import terms
+        with open(out, "w", encoding="utf-8") as handle:
+            handle.write(terms.translate(compare.page(os.path.basename(os.path.abspath(args.folder)), rows, notes,
+                                                      report.STYLE, args.name), assumptions))
+        judged = [x for x in rows if x["within"] is not None]
+        print("second opinion -> %s: %d of %d figures within tolerance" % (
+            out, sum(1 for x in judged if x["within"]), len(judged)))
+        for key, text in notes:
+            print("  look at: %s" % key.replace("_", " "))
         return 0
     if args.command == "init":
         from keel import starter
@@ -223,7 +261,8 @@ def run_callreport(args):
         with open(args.curve, encoding="utf-8") as handle:
             curve = {float(k): float(v) for k, v in json.load(handle).items()}
     prior = callreport.CallReport(args.prior) if args.prior else None
-    rows, raw, ties = callreport.build(report_data, args.cu, curve, prior=prior)
+    year_ago = callreport.CallReport(args.year_ago) if args.year_ago else None
+    rows, raw, ties = callreport.build(report_data, args.cu, curve, prior=prior, year_ago=year_ago)
     out = args.out or os.path.join("examples", "cu-%s" % args.cu)
     callreport.write(out, rows, raw, callreport.peers(report_data, args.cu))
     print("%s -> %s (%d positions)" % (report_data.name(args.cu), out, len(rows)))

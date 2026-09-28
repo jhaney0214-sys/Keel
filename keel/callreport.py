@@ -45,8 +45,15 @@ import zipfile
 from keel.model import InputError
 
 #: Daily Treasury par yield curve, percent, by tenor in months. From
-#: home.treasury.gov (Daily Treasury Par Yield Curve Rates), read 2026-09-27.
+#: home.treasury.gov (Daily Treasury Par Yield Curve Rates), read 2026-09-27; the last
+#: business day when a quarter ends on a weekend (2024-06-30 is June 28's curve).
 TREASURY = {
+    "2024-06-30": {1: 5.47, 2: 5.47, 3: 5.48, 4: 5.45, 6: 5.33, 12: 5.09, 24: 4.71, 36: 4.52, 60: 4.33,
+                   84: 4.33, 120: 4.36, 240: 4.61, 360: 4.51},
+    "2024-09-30": {1: 4.93, 2: 4.87, 3: 4.73, 4: 4.65, 6: 4.38, 12: 3.98, 24: 3.66, 36: 3.58, 60: 3.58,
+                   84: 3.67, 120: 3.81, 240: 4.19, 360: 4.14},
+    "2024-12-31": {1: 4.4, 2: 4.39, 3: 4.37, 4: 4.32, 6: 4.24, 12: 4.16, 24: 4.25, 36: 4.27, 60: 4.38,
+                   84: 4.48, 120: 4.58, 240: 4.86, 360: 4.78},
     "2025-03-31": {1: 4.38, 2: 4.35, 3: 4.32, 4: 4.31, 6: 4.23, 12: 4.03, 24: 3.89, 36: 3.89, 60: 3.96,
                    84: 4.09, 120: 4.23, 240: 4.62, 360: 4.59},
     "2025-06-30": {1: 4.28, 2: 4.45, 3: 4.41, 4: 4.36, 6: 4.29, 12: 3.96, 24: 3.72, 36: 3.68, 60: 3.79,
@@ -269,11 +276,13 @@ class CallReport(object):
 
 # --------------------------------------------------------------- building a folder
 
-def build(report, cu, curve=None, prior=None):
+def build(report, cu, curve=None, prior=None, year_ago=None):
     """(positions rows, assumptions dict, tie-out notes) for credit union `cu`.
     With `prior`, the same year's earlier call report, income and expense are
     the latest quarter's at an annual rate rather than the year to date's:
-    a year-to-date average lags when margins are moving."""
+    a year-to-date average lags when margins are moving. With `year_ago`,
+    the report four quarters earlier, loan and share growth are set from the
+    credit union's own year and its peer group's (see growth_rates)."""
     cu = str(cu)
     same_year = prior is not None and prior.as_of[:4] == report.as_of[:4] and str(cu) in prior.data
     yearly = (lambda key: report.latest(cu, key, prior)) if same_year else (lambda key: report.annual(cu, key))
@@ -454,20 +463,18 @@ def build(report, cu, curve=None, prior=None):
 
     # ---- the settings
     products = {k: dict(v) for k, v in PRODUCTS.items() if any(r["product"] == k for r in rows)}
-    if same_year or (prior is not None and str(cu) in prior.data):
-        # The credit union's own loan growth over the latest quarter,
-        # annualized, in place of Keel's defaults, which assume every credit
-        # union grows: over five quarters of call reports they over-forecast
-        # loans at credit unions under $100M, many of which are shrinking.
-        before = prior.get(cu, "loans")
-        days = (report.days - prior.days) if same_year else report.days + 365 - prior.days
-        if before > 0 and days > 0:
-            growth = 100.0 * ((g("loans") / before) ** (365.0 / days) - 1.0)
-            growth = round(max(-20.0, min(30.0, growth)), 2)
-            for name, spec in products.items():
-                if any(r["product"] == name and r["side"] == "asset" for r in loan_rows_all) and "growth" in spec:
-                    spec["growth"] = growth
-            notes.append("Loan growth %.2f%% a year: this credit union's own over the latest quarter." % growth)
+    if year_ago is not None:
+        rates = growth_rates(report, year_ago, cu)
+        loan_products = {r["product"] for r in loan_rows_all}
+        for name, spec in products.items():
+            if "growth" not in spec:
+                continue
+            key = "shares" if name in SHARE_WEIGHTS else "loans" if name in loan_products else None
+            if key and rates[key] is not None:
+                spec["growth"] = rates[key]
+        notes.append("Growth a year: loans %s, shares %s; half this credit union's own growth over the past year, "
+                     "half its NCUA peer group's median." % tuple(
+                         "Keel's default" if rates[k] is None else "%.2f%%" % rates[k] for k in ("loans", "shares")))
     net_charge_offs = ytd("charge_offs") - ytd("recoveries")
     modeled = sum(r["balance"] * products[r["product"]].get("charge_off", 0.0) / 100.0 for r in rows
                   if r["side"] == "asset" and r["balance"] > 0)
@@ -519,6 +526,50 @@ def build(report, cu, curve=None, prior=None):
             "dividends": (dividends, sum(r["balance"] * r["rate"] / 100.0 for r in rows
                                          if r["side"] == "liability" and r["product"] != "borrowings"))}
     return rows, raw, ties
+
+
+def _yoy(now, then, cu, key):
+    a, b = now.get(cu, key), then.get(cu, key)
+    return 100.0 * (a / b - 1.0) if a > 0 and b > 0 else None
+
+
+def peer_growth(report, year_ago):
+    """{(peer group, "loans" or "shares"): median growth over the year, percent}.
+    Remembered on the report, since every credit union in it asks."""
+    cache = report.__dict__.setdefault("_peer_growth", {})
+    if year_ago.as_of not in cache:
+        import statistics
+        found = {}
+        for cu, row in report.names.items():
+            group = row.get("PEER_GROUP", "")
+            for key in ("loans", "shares"):
+                v = _yoy(report, year_ago, cu, key)
+                if v is not None and -50.0 < v < 100.0:        # mergers and start-ups are not growth
+                    found.setdefault((group, key), []).append(v)
+        cache[year_ago.as_of] = {k: statistics.median(v) for k, v in found.items()}
+    return cache[year_ago.as_of]
+
+
+def growth_rates(report, year_ago, cu):
+    """{"loans": percent, "shares": percent} a year, or None where there is nothing to go on: half the credit
+    union's own growth over the past four quarters (clamped to -20% and +30%), half its peer group's median.
+
+    Over eight quarters of call reports (2024-06 to 2026-06, every credit
+    union) this forecast next quarter's loans, shares and assets better than
+    Keel's fixed defaults, the latest quarter annualized (noisy and seasonal),
+    the credit union's own year alone, or the peer median alone."""
+    group = report.names.get(str(cu), {}).get("PEER_GROUP", "")
+    peers = peer_growth(report, year_ago)
+    out = {}
+    for key in ("loans", "shares"):
+        own = _yoy(report, year_ago, cu, key)
+        own = None if own is None else max(-20.0, min(30.0, own))
+        peer = peers.get((group, key))
+        if own is not None and peer is not None:
+            out[key] = round(0.5 * own + 0.5 * peer, 2)
+        else:
+            out[key] = None if own is None and peer is None else round(own if own is not None else peer, 2)
+    return out
 
 
 def _index_rate(index, curve):

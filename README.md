@@ -231,23 +231,37 @@ the interest and dividends it reported; and Keel's default behaviour,
 terms and costs, which the notes say plainly. `peers.json` holds twelve
 ratios against its NCUA peer group, and the report shows them. It is a
 first look from public data, not a substitute for the credit union's own
-files. Keel knows the Treasury curve for each quarter-end from March 2025
+files. Keel knows the Treasury curve for each quarter-end from June 2024
 to June 2026; for another cycle, pass `--curve` a JSON of `{tenor months:
-rate}`. Pass `--prior` the previous quarter's zip to calibrate interest on
-the latest quarter and take loan growth from it.
+rate}`. Pass `--prior` the previous quarter's zip (same year) to calibrate
+interest on the latest quarter, and `--year-ago` the zip from four quarters
+earlier to take loan and share growth from the credit union's own year and
+its peer group's.
 
-**Validated out of sample.** `keel validate` builds every credit union from
-one quarter's report and scores its three-month forecast against the next:
+**Validated out of sample, every quarter.** `keel validate` builds every
+credit union from one quarter's report and scores its three-month forecast
+against the next; `python tools/quarterly_scorecard.py` does it for every
+quarter since June 2024, fetching new reports as NCUA publishes them, and
+writes [VALIDATION.md](VALIDATION.md). Over the four quarters to June 2026,
+Keel's quarterly NII came within a median 2.9% of the reported figure,
+against 3.1% for repeating last quarter, and was closer for 60% of credit
+unions (75% of those over $1 billion). It is also closer on assets, loans
+and shares; on the change in net worth it is no better than naive.
+
+## A second opinion on another model
 
 ```bash
-python -m keel validate call-report-data-2025-03.zip call-report-data-2025-06.zip ... call-report-data-2026-06.zip
+python -m keel compare "../Riverbend FCU" --template vendor.csv     # blank template: measure, scenario, value
+python -m keel compare "../Riverbend FCU" vendor.csv --name "Vendor model"
 ```
 
-Over five quarters and 21,866 credit-union quarters, Keel's quarterly NII
-has a median error of 3.2% (bias -1.1%) against 3.5% for repeating last
-quarter, and is closer for 78% of credit unions over $1 billion. Balances
-and net worth change one quarter out are no better than "nothing changes".
-METHODOLOGY.md has the full table and what it found.
+Fill the template from another ALM model's report (NII by scenario for years
+one and two, NEV and the NEV ratio, opening balances) and `keel compare`
+sets it beside Keel's figures on the same book, marks each within or
+outside a reviewer's tolerance, and says where to look first for each kind
+of difference: the opening book, base NII, shocked NII, base or shocked NEV.
+[docs/second-opinion-offer.md](docs/second-opinion-offer.md) is a one-page
+offer of this to a credit union.
 
 ## Rate forecasts and the budget
 
@@ -461,7 +475,7 @@ own-assumption NEV beside it, because the two can disagree sharply: on
 ## Tests
 
 ```bash
-python -m unittest discover -s tests      # 202 tests
+python -m unittest discover -s tests      # 208 tests
 ```
 
 Most pin an answer known independently of Keel: a textbook mortgage payment,

@@ -17,6 +17,7 @@ import concurrent.futures
 import importlib
 import os
 import pickle
+import sys
 
 MIN_TASKS = 3            # below this, starting workers costs more than it saves
 _pool = None
@@ -28,6 +29,18 @@ def workers():
     if setting.isdigit():
         return max(1, int(setting))
     return max(1, min((os.cpu_count() or 1) - 1, 12))
+
+
+def _spawnable():
+    """Whether worker processes can start: on Windows each re-imports the
+    program that launched it, which a script piped to Python or typed into a
+    notebook does not have. Found when a piped script printed a traceback
+    from every worker before falling back."""
+    main = sys.modules.get("__main__")
+    if getattr(main, "__spec__", None) is not None:          # python -m keel, or an installed command
+        return True
+    path = getattr(main, "__file__", None)
+    return bool(path) and os.path.isfile(path)
 
 
 def _call(task):
@@ -61,7 +74,7 @@ def run(tasks):
     """[result] for [(dotted function name, args tuple, kwargs dict)], in order."""
     tasks = [(name, tuple(args), dict(kwargs or {})) for name, args, kwargs in tasks]
     n = min(workers(), len(tasks))
-    if n > 1 and len(tasks) >= MIN_TASKS:
+    if n > 1 and len(tasks) >= MIN_TASKS and _spawnable():
         try:
             return list(_get_pool(n).map(_call, tasks))
         except (OSError, pickle.PicklingError, AttributeError, TypeError,
