@@ -676,8 +676,13 @@ def write(folder, rows, raw, peer=None):
 # --------------------------------------------------------------- peers
 
 RATIOS = (  # key, label, better when, function of (report, cu) -> percent or None
+    # The filed ratio (ACCT_998, hundredths of a percent), not net worth over
+    # quarter-end assets: NCUA lets a credit union use average assets, so the
+    # quotient missed 4 of 24 outreach snapshots by 0.11 to 0.52 points
+    # (2026-10-01). The quotient is only a fallback for a blank field.
     ("net_worth_ratio", "Net worth ratio", "higher",
-     lambda r, c: 100 * r.get(c, "net_worth") / r.get(c, "assets")),
+     lambda r, c: r.get(c, "net_worth_ratio") / 100 if r.get(c, "net_worth_ratio")
+     else 100 * r.get(c, "net_worth") / r.get(c, "assets")),
     ("roa", "Return on assets", "higher", lambda r, c: 100 * r.annual(c, "net_income") / r.get(c, "assets")),
     ("nim", "Net interest margin", "higher",
      lambda r, c: 100 * (r.annual(c, "interest_income") - r.annual(c, "interest_expense")) / r.get(c, "assets")),

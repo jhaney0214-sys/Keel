@@ -286,6 +286,17 @@ class CallReport(unittest.TestCase):
         self.assertAlmostEqual(worth["value"], 10.0)
         self.assertAlmostEqual(worth["percentile"], 50.0)          # three identical ratios: the middle
 
+    def test_the_net_worth_ratio_is_the_filed_one_when_filed(self):
+        # NCUA allows average assets in the denominator; 2440 filed 9.39% while
+        # net worth over quarter-end assets gave 8.87% (2026-10-01).
+        self.report.data["2"]["ACCT_998"] = 1023.0
+        try:
+            p = callreport.peers(self.report, "2")
+        finally:
+            del self.report.data["2"]["ACCT_998"]
+        worth = next(x for x in p["ratios"] if x["key"] == "net_worth_ratio")
+        self.assertAlmostEqual(worth["value"], 10.23)
+
     def test_an_unknown_credit_union_and_a_non_ncua_zip_are_refused(self):
         with self.assertRaises(model.InputError):
             callreport.build(self.report, "999")
