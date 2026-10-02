@@ -128,7 +128,13 @@ are on the post-shock NEV ratio (above 7% low, 4–7% moderate, below 4% high)
 and the **NEV percent change** (a decline below 40% is low, 40–65% moderate,
 above 65% high). The decline in the ratio itself is shown for reference, not
 rated. Sources: NCUA's supervisory framework letter and Examiner's Guide, and
-ALM First's description of the standardized prices, read 2026-09-27.
+ALM First's description of the standardized prices, read 2026-09-27. The prices
+were confirmed on 2026-10-02 against NCUA's own [Job Aid: IRR Workbook
+Procedures](https://publishedguides.ncua.gov/examiner/Content/PDFs/Job%20Aids/IRR%20Procedures%20Guidance%20INTERNAL.pdf)
+(revised 2022-09-01). It states the test "standardizes the value benefit for all
+non-maturity shares at -1.0 percent for the base case and -4.0 percent in a +300
+bps parallel shock", and its worked example applies the 4% to the base value,
+not to book: regular shares of 95,314,353 become 94,361,209, then 90,586,761.
 
 The report also shows NEV on the credit union's own assumptions, under every
 instantaneous scenario including curve shapes. The two views can disagree

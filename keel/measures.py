@@ -60,8 +60,10 @@ class NEV:
 #: NCUA's NEV Supervisory Test prices every non-maturity share at these
 #: standardized values, whatever the credit union's own assumptions say, and
 #: leaves every other position at its own model value: 99.00 in the base
-#: scenario (a 1% benefit) and 95.04 at +300bp (a further 4% decline). From
-#: ALM First's and NCUA's descriptions of the test, read 2026-09-27.
+#: scenario (a 1% benefit) and 95.04 at +300bp (a further 4% off the base
+#: value). Confirmed 2026-10-02 against NCUA's Job Aid: IRR Workbook Procedures
+#: (rev. 2022-09-01), whose worked example takes regular shares of 95,314,353
+#: to 94,361,209 (base) and 90,586,761 (+300bp): 0.99, then 0.96 of base.
 SUPERVISORY_SHARE_PRICE = {0.0: 0.99, 300.0: 0.9504}
 
 
