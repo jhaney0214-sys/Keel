@@ -295,8 +295,6 @@ one and two, NEV and the NEV ratio, opening balances) and `keel compare`
 sets it beside Keel's figures on the same book, marks each within or
 outside a reviewer's tolerance, and says where to look first for each kind
 of difference: the opening book, base NII, shocked NII, base or shocked NEV.
-[docs/second-opinion-offer.md](docs/second-opinion-offer.md) is a one-page
-offer of this to a credit union.
 
 ## Rate forecasts and the budget
 
