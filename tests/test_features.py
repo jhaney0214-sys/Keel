@@ -251,8 +251,6 @@ class WhatIf(unittest.TestCase):
             whatif.apply(self.book, self.raw, {"assumptions": {"nothing.here": 1}})
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class Browser(unittest.TestCase):
@@ -299,3 +297,7 @@ class Browser(unittest.TestCase):
         finally:
             httpd.shutdown()
             httpd.server_close()
+
+
+if __name__ == "__main__":
+    unittest.main()
