@@ -21,8 +21,8 @@ from keel import charts, report, results as results_module, terms
 from keel.report import chip, esc, k, pct, signed, signed_points, table
 
 RATING = report.RATING
-#: Who a snapshot's closing offer asks the reader to reply to.
-CONTACT = "Jordan Haney, CFA, jhaney0214@gmail.com"
+#: Who a snapshot's closing offer asks the reader to reply to. Without one, the page has no offer.
+CONTACT = None
 
 EXTRA_STYLE = """
 .snap .tiles{grid-template-columns:repeat(3,1fr)}
@@ -193,6 +193,8 @@ def calibration(r):
 
 
 def offer(r, contact):
+    if not contact:
+        return ""
     own = indicative(r)
     return ("<section class='offer' id='offer'><h2>%s</h2><p>%s</p><p>Keel runs on one computer and sends nothing "
             "anywhere; it can run on your own machine with your staff at the keyboard. The result is a full ALCO "

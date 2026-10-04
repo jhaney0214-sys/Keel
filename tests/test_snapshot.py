@@ -54,13 +54,18 @@ class Snapshot(unittest.TestCase):
         self.assertIn("What your own files would change", page)
         self.assertIn("Keel's defaults, not its own", page)
 
-    def test_the_author_is_the_default_contact(self):
+    def test_no_contact_means_no_offer(self):
+        """Nobody's name goes on a page unless they put it there."""
         positions, assumptions, _, imported = load(SAMPLE)
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "s.html")
             snapshot.build(positions, assumptions, path, "Test CU", None, imported=imported)
             with open(path, encoding="utf-8") as handle:
-                self.assertIn("Jordan Haney, CFA, jhaney0214@gmail.com", handle.read())
+                self.assertNotIn("id='offer'", handle.read())
+            snapshot.build(positions, assumptions, path, "Test CU", None, contact="A. Analyst, analyst@example.com",
+                           imported=imported)
+            with open(path, encoding="utf-8") as handle:
+                self.assertIn("A. Analyst, analyst@example.com", handle.read())
 
     def test_only_the_boards_own_limits_are_shown(self):
         """A typical limit shown as the institution's would be a verdict nobody set."""

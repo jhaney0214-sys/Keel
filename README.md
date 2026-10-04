@@ -261,8 +261,8 @@ python -m keel snapshot examples/cu-12345 --contact "A. Analyst, analyst@example
 `report/snapshot.html` is the report cut to what a first look needs: six
 headline numbers, the earnings, economic value, liquidity and capital
 findings, NII and NEV by scenario, the repricing gap, peers when the folder
-has them, what the figures are built from, and a closing offer that ends
-on `--contact` (Jordan Haney's by default). **Policy limits are the
+has them, what the figures are built from, and, when `--contact` is given,
+a closing offer that ends on it (without it, the page has no offer). **Policy limits are the
 institution's own:** the page shows only those it has set, in the Limits
 sheet, as `"limits"` in assumptions.json, or for one page with
 `--limit nii_decline_300=15` (repeatable; the keys are under Policy limits
@@ -532,7 +532,17 @@ or `KEEL_WORKERS=n` for n workers.
 
 ## Status
 
-A working prototype, built 2026-09-27 and run only on synthetic data. **It
-has not been compared against a production ALM model.** That comparison, on
+A working prototype, built 2026-09-27 and run on synthetic data and on
+NCUA's public call reports (VALIDATION.md). **It has not been compared
+against a production ALM model.** That comparison, on
 a real credit union's files, is the next test that matters. What it does not
 do yet is at the end of [`METHODOLOGY.md`](METHODOLOGY.md).
+
+Keel's output is a model's estimate, not investment, legal or regulatory
+advice, and not an audit or a validation of anyone's model. Check it against
+your own figures before it informs a decision.
+
+## Licence
+
+MIT. See [`LICENSE`](LICENSE). The sample institutions in `examples/` are
+synthetic and describe no real credit union or bank.

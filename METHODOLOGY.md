@@ -630,8 +630,8 @@ on real files, treat call-report NEV as unvalidated.
 **Nor does it score capital, and that gap reached an outreach page.** Later
 the same day, building the first 24 snapshots to send to credit unions, three
 said "below well capitalized" of credit unions that reported well-capitalized
-net worth ratios (Align 8.67% reported, 5.58% shown; Ocean Financial 8.17%
-and 5.83%; Cornerstone Community 7.62% and 5.85%). A call-report build carries
+net worth ratios (8.67% reported and 5.58% shown; 8.17% and 5.83%; 7.62%
+and 5.85%). A call-report build carries
 securities at fair value, so book equity had already taken the unrealized
 losses that regulatory net worth leaves out, and the capital page read book
 equity as net worth. 217 tests and the green scorecard passed throughout. It
