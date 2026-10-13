@@ -8,11 +8,11 @@ Median absolute error and median signed error (bias), in percent of the actual; 
 
 | Measure | Keel | Keel bias | Naive | Keel closer |
 |---|---|---|---|---|
-| Quarter NII | 2.77 | -0.57 | 3.14 | 58% |
+| Quarter NII | 2.74 | -0.41 | 3.14 | 58% |
 | Total assets | 1.38 | +0.14 | 1.53 | 56% |
 | Loans | 1.75 | +0.27 | 2.00 | 60% |
-| Shares | 1.60 | +0.13 | 1.70 | 54% |
-| Net worth change | 8.78 | +1.41 | 8.34 | 50% |
+| Shares | 1.60 | +0.12 | 1.70 | 54% |
+| Net worth change | 8.82 | +1.55 | 8.34 | 50% |
 
 17,411 credit-union quarters.
 
@@ -20,11 +20,11 @@ Median absolute error and median signed error (bias), in percent of the actual; 
 
 | Assets | Credit-union quarters | Keel | Keel bias | Naive | Keel closer |
 |---|---|---|---|---|---|
-| All credit unions | 17,411 | 2.77 | -0.57 | 3.14 | 58% |
-| under $10M | 3,201 | 7.22 | -0.08 | 7.54 | 54% |
-| $10M to $100M | 6,960 | 2.93 | -0.51 | 3.07 | 53% |
-| $100M to $1B | 5,393 | 2.04 | -0.62 | 2.48 | 63% |
-| $1B and over | 1,857 | 1.95 | -0.73 | 2.79 | 70% |
+| All credit unions | 17,411 | 2.74 | -0.41 | 3.14 | 58% |
+| under $10M | 3,201 | 7.24 | -0.06 | 7.54 | 54% |
+| $10M to $100M | 6,960 | 2.91 | -0.40 | 3.07 | 54% |
+| $100M to $1B | 5,393 | 2.01 | -0.48 | 2.48 | 63% |
+| $1B and over | 1,857 | 1.93 | -0.45 | 2.79 | 68% |
 
 ## The parts of NII
 
@@ -33,21 +33,21 @@ The same forecasts, by the three lines NII is made of. "Of NII" is the part's er
 | Part | Keel | Keel bias | Naive | Keel closer | Of NII | Of NII, bias |
 |---|---|---|---|---|---|---|
 | Loan interest | 1.61 | -0.03 | 2.27 | 65% | 1.47 | -0.02 |
-| Investment income | 6.23 | +0.22 | 7.30 | 60% | 1.79 | +0.08 |
-| Interest expense | 3.36 | +0.84 | 3.65 | 57% | 0.89 | +0.20 |
+| Investment income | 6.23 | +0.22 | 7.30 | 60% | 1.79 | +0.07 |
+| Interest expense | 3.33 | +0.62 | 3.65 | 58% | 0.87 | +0.14 |
 
 ## Each quarter
 
 | Quarter | Credit unions | NII: Keel | NII: naive | NII: Keel closer | Loans: Keel | Shares: Keel |
 |---|---|---|---|---|---|---|
-| 2024-06-30 to 2024-09-30 | 4,592 | 4.17 | 4.85 | 70% | 1.92 | 1.92 |
-| 2024-09-30 to 2024-12-31 | 4,545 | 3.51 | 3.67 | 56% | 2.08 | 1.60 |
-| 2024-12-31 to 2025-03-31 | 4,499 | 3.55 | 4.13 | 63% | 2.26 | 2.27 |
-| 2025-03-31 to 2025-06-30 | 4,455 | 3.61 | 4.71 | 72% | 2.01 | 1.59 |
-| 2025-06-30 to 2025-09-30 | 4,416 | 2.71 | 3.12 | 60% | 1.67 | 1.69 |
-| 2025-09-30 to 2025-12-31 | 4,368 | 2.88 | 3.19 | 56% | 1.68 | 1.41 |
-| 2025-12-31 to 2026-03-31 | 4,332 | 2.93 | 3.14 | 55% | 1.85 | 1.79 |
-| 2026-03-31 to 2026-06-30 | 4,295 | 2.57 | 3.14 | 62% | 1.79 | 1.53 |
+| 2024-06-30 to 2024-09-30 | 4,592 | 4.31 | 4.85 | 70% | 1.92 | 1.92 |
+| 2024-09-30 to 2024-12-31 | 4,545 | 3.43 | 3.67 | 57% | 2.08 | 1.60 |
+| 2024-12-31 to 2025-03-31 | 4,499 | 3.50 | 4.13 | 64% | 2.26 | 2.27 |
+| 2025-03-31 to 2025-06-30 | 4,455 | 3.54 | 4.71 | 72% | 2.01 | 1.59 |
+| 2025-06-30 to 2025-09-30 | 4,416 | 2.64 | 3.12 | 60% | 1.67 | 1.69 |
+| 2025-09-30 to 2025-12-31 | 4,368 | 2.88 | 3.19 | 55% | 1.68 | 1.41 |
+| 2025-12-31 to 2026-03-31 | 4,332 | 2.94 | 3.14 | 55% | 1.85 | 1.79 |
+| 2026-03-31 to 2026-06-30 | 4,295 | 2.54 | 3.14 | 62% | 1.79 | 1.53 |
 
 Quarters before 2025-06-30 are calibrated without a year-ago report, so their growth is Keel's defaults; the latest-four table uses only quarters with the full method.
 

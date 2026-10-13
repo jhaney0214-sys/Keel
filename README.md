@@ -247,9 +247,9 @@ credit union from one quarter's report and scores its three-month forecast
 against the next; `python tools/quarterly_scorecard.py` does it for every
 quarter since June 2024, fetching new reports as NCUA publishes them, and
 writes [VALIDATION.md](VALIDATION.md). Over the four quarters to June 2026,
-Keel's quarterly NII came within a median 2.8% of the reported figure,
+Keel's quarterly NII came within a median 2.7% of the reported figure,
 against 3.1% for repeating last quarter, and was closer for 58% of credit
-unions (70% of those over $1 billion). It is also closer on assets, loans
+unions (68% of those over $1 billion). It is also closer on assets, loans
 and shares; on the change in net worth it is no better than naive.
 
 ## A two-page snapshot

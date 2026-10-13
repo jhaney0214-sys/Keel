@@ -586,15 +586,15 @@ writes **VALIDATION.md**, the current record (aggregate figures only), and
 
 Through June 2026, over the latest four quarters (17,411 credit-union
 quarters, calibrated on the latest quarter with growth from the past year),
-Keel's quarterly NII has a median error of 2.8% against 3.1% naive and is
-closer for 58% of credit unions (70% of those over $1 billion); it is also
+Keel's quarterly NII has a median error of 2.7% against 3.1% naive and is
+closer for 58% of credit unions (68% of those over $1 billion); it is also
 closer on assets, loans and shares, and no better than naive on the change
 in net worth. What the record says:
 
 - **No one part of NII carries the error.** Scored separately since October
   2026 (VALIDATION.md, "The parts of NII"), over the same 17,411
   credit-union quarters: loan interest has a median error of 1.6% of the
-  line, interest expense 3.4% and investment income 6.2%. Set against each
+  line, interest expense 3.3% and investment income 6.2%. Set against each
   credit union's NII, which is what lets a small line be compared with a
   large one, that is 1.5% of NII from loan interest, 1.8% from investment
   income and 0.9% from interest expense. This paragraph once said loan
@@ -612,6 +612,14 @@ in net worth. What the record says:
   quarter is given. All three parts improved: loan interest from 2.1% to
   1.6% (closer for 65%), investment income from 7.1% to 6.2% (60%), interest
   expense from 3.8% to 3.4% (57%), and NII from 2.9% to 2.8%.
+- **Short certificates are a ladder, since 2026-10-13.** The call report's
+  under-one-year certificate band was one bullet at seven months, so nothing
+  matured inside a quarter and a one-quarter forecast could not see a
+  certificate reprice. It is now four rungs at 2, 5, 8 and 11 months. A small
+  gain, in the expected direction: interest expense from 3.36% to 3.33% with
+  its bias down from +0.8% to +0.6%, and NII from 2.77% to 2.74% with its
+  bias from -0.6% to -0.4%. Seven of eight quarters improved or held; the
+  quarter to September 2024 got worse (4.17% to 4.31%).
 - **Two things that change did not buy.** The share of credit unions where
   Keel's NII is closer fell from 60% to 58%, though the median error fell in
   every size band; and interest expense now runs 0.8% high where it ran 0.3%

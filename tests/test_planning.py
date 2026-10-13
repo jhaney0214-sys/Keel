@@ -443,6 +443,16 @@ class Validation(unittest.TestCase):
         quarter = june.latest("1", "dividends", march) + june.latest("1", "deposit_interest", march)
         self.assertAlmostEqual(cost(opened) / 100.0, quarter * closing / average, delta=quarter * 2e-3)
 
+    def test_short_certificates_are_a_ladder_that_reprices_inside_a_quarter(self):
+        """One bullet at seven months matured nothing in a three-month forecast."""
+        rows, _, ties = callreport.build(callreport.CallReport(self.june), "1")
+        rungs = sorted(r["term_months"] for r in rows if r["product"] == "certificates" and r["term_months"] < 12)
+        self.assertEqual(tuple(rungs), callreport.CERT_LADDER)
+        short = [r for r in rows if r["product"] == "certificates" and r["term_months"] < 12]
+        self.assertEqual(len({round(r["balance"], 2) for r in short}), 1)      # equal rungs
+        self.assertTrue(any(r["term_months"] <= 3 for r in short))
+        self.assertAlmostEqual(ties["dividends"][1] / ties["dividends"][0], 1.0, places=3)
+
     def test_a_merger_does_not_halve_the_average(self):
         self.assertEqual(callreport._period_average(100.0, 0.0), 100.0)
         self.assertAlmostEqual(callreport._period_average(100.0, 98.0), 99.0)

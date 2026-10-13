@@ -179,6 +179,9 @@ PRODUCTS = {
 SHARE_WEIGHTS = {"regular_shares": 0.25, "share_drafts": 0.10, "money_market": 2.40, "ira_shares": 1.50,
                  "certificates": 4.00}
 
+#: Months to maturity of the four rungs of the under-one-year certificate band.
+CERT_LADDER = (2, 5, 8, 11)
+
 #: (product, account, rate account, remaining months, amortization, extra) for each loan line.
 LOANS = (
     ("new_auto", "new_auto", "rate_new_auto", 42, "level", {}),
@@ -447,7 +450,12 @@ def build(report, cu, curve=None, prior=None, year_ago=None):
     def share_lines(g):
         share_rows = [(p, g(k), name, t, am) for p, k, name, t, am in lines if g(k) > 0]
         cert_total = g("certificates")
-        cert_bands = [(g("cert_1"), 7), (g("cert_3"), 22), (g("cert_long"), 44)]
+        # The under-one-year band is a ladder, not one certificate: a quarter
+        # of it comes due every three months and rolls at today's rate. As one
+        # bullet at seven months nothing matured inside a quarter, so a
+        # one-quarter forecast could not see certificates reprice at all.
+        cert_bands = [(g("cert_1") / 4.0, months) for months in CERT_LADDER] + [
+            (g("cert_3"), 22), (g("cert_long"), 44)]
         banded = sum(b for b, _ in cert_bands)
         if cert_total > 0:
             for amount, term in cert_bands:
