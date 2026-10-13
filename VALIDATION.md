@@ -8,11 +8,11 @@ Median absolute error and median signed error (bias), in percent of the actual; 
 
 | Measure | Keel | Keel bias | Naive | Keel closer |
 |---|---|---|---|---|
-| Quarter NII | 2.92 | -0.73 | 3.14 | 60% |
+| Quarter NII | 2.77 | -0.57 | 3.14 | 58% |
 | Total assets | 1.38 | +0.14 | 1.53 | 56% |
 | Loans | 1.75 | +0.27 | 2.00 | 60% |
 | Shares | 1.60 | +0.13 | 1.70 | 54% |
-| Net worth change | 8.67 | +1.17 | 8.34 | 50% |
+| Net worth change | 8.78 | +1.41 | 8.34 | 50% |
 
 17,411 credit-union quarters.
 
@@ -20,11 +20,11 @@ Median absolute error and median signed error (bias), in percent of the actual; 
 
 | Assets | Credit-union quarters | Keel | Keel bias | Naive | Keel closer |
 |---|---|---|---|---|---|
-| All credit unions | 17,411 | 2.92 | -0.73 | 3.14 | 60% |
-| under $10M | 3,201 | 7.59 | +0.31 | 7.54 | 53% |
-| $10M to $100M | 6,960 | 3.03 | -0.45 | 3.07 | 55% |
-| $100M to $1B | 5,393 | 2.17 | -0.98 | 2.48 | 66% |
-| $1B and over | 1,857 | 2.17 | -1.38 | 2.79 | 75% |
+| All credit unions | 17,411 | 2.77 | -0.57 | 3.14 | 58% |
+| under $10M | 3,201 | 7.22 | -0.08 | 7.54 | 54% |
+| $10M to $100M | 6,960 | 2.93 | -0.51 | 3.07 | 53% |
+| $100M to $1B | 5,393 | 2.04 | -0.62 | 2.48 | 63% |
+| $1B and over | 1,857 | 1.95 | -0.73 | 2.79 | 70% |
 
 ## The parts of NII
 
@@ -32,27 +32,27 @@ The same forecasts, by the three lines NII is made of. "Of NII" is the part's er
 
 | Part | Keel | Keel bias | Naive | Keel closer | Of NII | Of NII, bias |
 |---|---|---|---|---|---|---|
-| Loan interest | 2.05 | -0.10 | 2.27 | 62% | 1.89 | -0.09 |
-| Investment income | 7.14 | -0.43 | 7.30 | 55% | 2.08 | -0.11 |
-| Interest expense | 3.75 | +0.26 | 3.65 | 51% | 1.00 | +0.06 |
+| Loan interest | 1.61 | -0.03 | 2.27 | 65% | 1.47 | -0.02 |
+| Investment income | 6.23 | +0.22 | 7.30 | 60% | 1.79 | +0.08 |
+| Interest expense | 3.36 | +0.84 | 3.65 | 57% | 0.89 | +0.20 |
 
 ## Each quarter
 
 | Quarter | Credit unions | NII: Keel | NII: naive | NII: Keel closer | Loans: Keel | Shares: Keel |
 |---|---|---|---|---|---|---|
 | 2024-06-30 to 2024-09-30 | 4,592 | 4.17 | 4.85 | 70% | 1.92 | 1.92 |
-| 2024-09-30 to 2024-12-31 | 4,545 | 3.55 | 3.67 | 55% | 2.08 | 1.60 |
-| 2024-12-31 to 2025-03-31 | 4,499 | 3.64 | 4.13 | 67% | 2.26 | 2.27 |
-| 2025-03-31 to 2025-06-30 | 4,455 | 4.16 | 4.71 | 75% | 2.01 | 1.59 |
-| 2025-06-30 to 2025-09-30 | 4,416 | 2.83 | 3.12 | 62% | 1.67 | 1.69 |
-| 2025-09-30 to 2025-12-31 | 4,368 | 3.03 | 3.19 | 55% | 1.68 | 1.41 |
-| 2025-12-31 to 2026-03-31 | 4,332 | 3.06 | 3.14 | 57% | 1.85 | 1.79 |
-| 2026-03-31 to 2026-06-30 | 4,295 | 2.80 | 3.14 | 67% | 1.79 | 1.53 |
+| 2024-09-30 to 2024-12-31 | 4,545 | 3.51 | 3.67 | 56% | 2.08 | 1.60 |
+| 2024-12-31 to 2025-03-31 | 4,499 | 3.55 | 4.13 | 63% | 2.26 | 2.27 |
+| 2025-03-31 to 2025-06-30 | 4,455 | 3.61 | 4.71 | 72% | 2.01 | 1.59 |
+| 2025-06-30 to 2025-09-30 | 4,416 | 2.71 | 3.12 | 60% | 1.67 | 1.69 |
+| 2025-09-30 to 2025-12-31 | 4,368 | 2.88 | 3.19 | 56% | 1.68 | 1.41 |
+| 2025-12-31 to 2026-03-31 | 4,332 | 2.93 | 3.14 | 55% | 1.85 | 1.79 |
+| 2026-03-31 to 2026-06-30 | 4,295 | 2.57 | 3.14 | 62% | 1.79 | 1.53 |
 
 Quarters before 2025-06-30 are calibrated without a year-ago report, so their growth is Keel's defaults; the latest-four table uses only quarters with the full method.
 
 ## What it does not show
 
 - One quarter ahead, net worth change is forecast no better than by "nothing changes" (Keel closer for under 52% of credit unions); Keel's value there is in the scenarios, not the base forecast.
-- By part, investment income is forecast least well for its own size (median error 7.1% of the line). Measured against NII no one part stands out: investment income costs a median 2.1% of NII and loan interest 1.9%. Investment income moves with rates inside the quarter, which a forecast made at its start cannot know.
+- By part, investment income is forecast least well for its own size (median error 6.2% of the line). Measured against NII no one part stands out: investment income costs a median 1.8% of NII and loan interest 1.5%. Investment income moves with rates inside the quarter, which a forecast made at its start cannot know.
 - Every credit union here runs on Keel's default behaviour. A credit union's own files and deposit study should do better; none has yet been compared side by side with a production ALM model.

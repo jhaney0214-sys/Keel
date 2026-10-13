@@ -586,25 +586,38 @@ writes **VALIDATION.md**, the current record (aggregate figures only), and
 
 Through June 2026, over the latest four quarters (17,411 credit-union
 quarters, calibrated on the latest quarter with growth from the past year),
-Keel's quarterly NII has a median error of 2.9% against 3.1% naive and is
-closer for 60% of credit unions (75% of those over $1 billion); it is also
+Keel's quarterly NII has a median error of 2.8% against 3.1% naive and is
+closer for 58% of credit unions (70% of those over $1 billion); it is also
 closer on assets, loans and shares, and no better than naive on the change
 in net worth. What the record says:
 
 - **No one part of NII carries the error.** Scored separately since October
   2026 (VALIDATION.md, "The parts of NII"), over the same 17,411
-  credit-union quarters: loan interest has a median error of 2.1% of the
-  line, interest expense 3.8% and investment income 7.1%. Set against each
+  credit-union quarters: loan interest has a median error of 1.6% of the
+  line, interest expense 3.4% and investment income 6.2%. Set against each
   credit union's NII, which is what lets a small line be compared with a
-  large one, that is 1.9% of NII from loan interest, 2.1% from investment
-  income and 1.0% from interest expense. Bias is small on all three (under
-  half a percent of the line). This paragraph used to say loan interest and
-  interest expense were forecast "to within about 1%" and that most of the
-  remaining error was investment income; that was written from one look at
-  the figures, and it holds for bias, not for error.
-- **Interest expense is forecast no better than "nothing changes"** (Keel
-  closer for 51% of credit unions; 3.8% against 3.7%). Loan interest (62%)
-  and investment income (55%) beat it.
+  large one, that is 1.5% of NII from loan interest, 1.8% from investment
+  income and 0.9% from interest expense. This paragraph once said loan
+  interest and interest expense were forecast "to within about 1%" and that
+  most of the remaining error was investment income; that was written from
+  one look at the figures, and it holds for bias, not for error.
+- **Rates are set on the balances that earned the income, since 2026-10-13.**
+  A call-report build divided each quarter's dividends, loan interest and
+  investment income by the CLOSING balance. Income is earned on the balance
+  the quarter held, so a growing book's rate came out low and next quarter's
+  forecast was last quarter's figure again. Interest expense was closer than
+  "nothing changes" for 51% of credit unions, which is a coin. Each rate is
+  now set on the mean of the quarter's opening and closing balances (held
+  within 15% of the closing one, for mergers), when the report that opens the
+  quarter is given. All three parts improved: loan interest from 2.1% to
+  1.6% (closer for 65%), investment income from 7.1% to 6.2% (60%), interest
+  expense from 3.8% to 3.4% (57%), and NII from 2.9% to 2.8%.
+- **Two things that change did not buy.** The share of credit unions where
+  Keel's NII is closer fell from 60% to 58%, though the median error fell in
+  every size band; and interest expense now runs 0.8% high where it ran 0.3%
+  high. Correcting the liability side alone made NII worse (3.05%), because
+  the low rates on both sides had been cancelling. A model whose errors
+  offset reads better than it is.
 - **Investment income is the line forecast least well for its size.** It
   moves with rates inside the quarter, which a forecast made at its start
   cannot know: Keel ran high in a quarter of cuts and low in one where one-

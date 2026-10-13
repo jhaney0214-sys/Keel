@@ -290,6 +290,13 @@ def build(report, cu, curve=None, prior=None, year_ago=None):
     # gains, bonuses, a single large charge-off): they stay year to date.
     ytd = lambda key: report.annual(cu, key)  # noqa: E731
     basis = "the latest quarter, annualized" if same_year else "year to date, annualized"
+    # The report that opens the period the income covers: the same year's
+    # earlier one for the latest quarter, or last December's for a first
+    # quarter read year to date. Without one, closing balances stand in.
+    opening = prior if same_year else None
+    if (opening is None and prior is not None and cu in prior.data and report.months == 3
+            and prior.months == 12 and int(prior.as_of[:4]) == int(report.as_of[:4]) - 1):
+        opening = prior
     if cu not in report.data:
         raise InputError("credit union %s is not in this call report" % cu)
     g = lambda key: report.get(cu, key)  # noqa: E731
@@ -331,18 +338,23 @@ def build(report, cu, curve=None, prior=None, year_ago=None):
     for r in loan_rows:
         r[3] = r[3] or average
     reported = yearly("loan_interest") - yearly("interest_refunded")
+    # Interest was earned on the loans the period held. Set on the closing
+    # balance, a growing book's yield comes out low; `loan_basis` restates the
+    # year's interest as the closing book would earn it at the period's yield.
+    loan_basis = total_loans / _period_average(total_loans, opening.get(cu, "loans")) if opening and total_loans > 0         else 1.0
+    reported_closing = reported * loan_basis
     # Only the fixed lines are scaled. A variable loan already earns today's
     # index plus its margin, so the most common rate is its rate; the gap to
     # reported interest is the seasoned fixed book. Found when scaling every
     # line valued HELOCs and ARMs 5-10% under par, 0.8-3.4% of assets.
     floating = sum(r[2] * r[3] / 100.0 for r in loan_rows if r[6].get("variable"))
     implied = sum(r[2] * r[3] / 100.0 for r in loan_rows if not r[6].get("variable"))
-    if implied and reported - floating > 0:
-        loan_scale = (reported - floating) / implied
+    if implied and reported_closing - floating > 0:
+        loan_scale = (reported_closing - floating) / implied
     else:
         # Too little fixed income to carry the difference: scale everything, as before.
         floating, implied = 0.0, sum(r[2] * r[3] / 100.0 for r in loan_rows)
-        loan_scale = reported / implied if implied and reported > 0 else 1.0
+        loan_scale = reported_closing / implied if implied and reported > 0 else 1.0
     for product, key, balance, rate, term, amortization, extra in loan_rows:
         if not extra.get("variable") or not floating:
             rate = rate * loan_scale
@@ -378,6 +390,12 @@ def build(report, cu, curve=None, prior=None, year_ago=None):
     banded = sum(g(b[0]) for b in bands)
     income = yearly("investment_income")
     earning = cash + investments
+    # The same for what cash and investments earned (see `loan_basis`).
+    inv_basis = 1.0
+    if opening and earning > 0:
+        opened = opening.get(cu, "cash") + opening.get(cu, "securities") + opening.get(cu, "other_investments")
+        inv_basis = earning / _period_average(earning, opened)
+    reported_income, income = income, income * inv_basis
     # The plan pays the short rate on cash, so cash and securities together
     # must earn the investment income reported. At the blended yield y:
     # when y is under the short rate, only y / short of the cash earns (the
@@ -425,40 +443,56 @@ def build(report, cu, curve=None, prior=None, year_ago=None):
              ("money_market", "money_market", "Money market shares", 0, "nonmaturity"),
              ("ira_shares", "ira", "IRA/Keogh accounts", 0, "nonmaturity"),
              ("regular_shares", "other_shares", "All other shares", 0, "nonmaturity")]
-    share_rows = [(p, g(k), name, t, am) for p, k, name, t, am in lines if g(k) > 0]
-    cert_total = g("certificates")
-    cert_bands = [(g("cert_1"), 7), (g("cert_3"), 22), (g("cert_long"), 44)]
-    banded = sum(b for b, _ in cert_bands)
-    if cert_total > 0:
-        for amount, term in cert_bands:
-            if amount > 0:
-                share_rows.append(("certificates", amount * cert_total / banded, "Share certificates, about %d months"
-                                   % term, term, "bullet"))
-        if not banded:
-            share_rows.append(("certificates", cert_total, "Share certificates", 12, "bullet"))
-    if g("nonmember") > 0:
-        share_rows.append(("certificates", g("nonmember"), "Non-member deposits", 12, "bullet"))
+
+    def share_lines(g):
+        share_rows = [(p, g(k), name, t, am) for p, k, name, t, am in lines if g(k) > 0]
+        cert_total = g("certificates")
+        cert_bands = [(g("cert_1"), 7), (g("cert_3"), 22), (g("cert_long"), 44)]
+        banded = sum(b for b, _ in cert_bands)
+        if cert_total > 0:
+            for amount, term in cert_bands:
+                if amount > 0:
+                    share_rows.append(("certificates", amount * cert_total / banded,
+                                       "Share certificates, about %d months" % term, term, "bullet"))
+            if not banded:
+                share_rows.append(("certificates", cert_total, "Share certificates", 12, "bullet"))
+        if g("nonmember") > 0:
+            share_rows.append(("certificates", g("nonmember"), "Non-member deposits", 12, "bullet"))
+        listed = sum(r[1] for r in share_rows)
+        if g("shares") - listed > 1000:
+            share_rows.append(("regular_shares", g("shares") - listed, "Other shares and deposits", 0, "nonmaturity"))
+        return share_rows
+
+    def weigh(share_rows):
+        return sum(balance * SHARE_WEIGHTS[p] / 100.0 for p, balance, _, _, _ in share_rows)
+
+    share_rows = share_lines(g)
     shares = g("shares")
-    listed = sum(r[1] for r in share_rows)
-    if shares - listed > 1000:
-        share_rows.append(("regular_shares", shares - listed, "Other shares and deposits", 0, "nonmaturity"))
     dividends = yearly("dividends") + yearly("deposit_interest")
-    weighted = sum(balance * SHARE_WEIGHTS[p] / 100.0 for p, balance, _, _, _ in share_rows)
-    share_scale = dividends / weighted if weighted else 1.0
+    weighted = weigh(share_rows)
+    # The dividends were paid on the balances the period held, not the ones
+    # it closed with. Dividing by the closing balance set every rate low for
+    # a credit union whose shares grew in the quarter, and the next quarter's
+    # expense came out as the last one's again (VALIDATION.md, 2026-10-13).
+    earned_on = _period_average(weighted, weigh(share_lines(lambda k: opening.get(cu, k)))) if opening else weighted
+    share_scale = dividends / earned_on if earned_on else 1.0
     for i, (product, balance, name, term, amortization) in enumerate(share_rows):
         add("sh%d_%s" % (i, product), name, product, "liability", balance,
             round(SHARE_WEIGHTS[product] * share_scale, 3), "administered" if amortization == "nonmaturity"
             else "fixed", term, amortization)
     notes.append("Share rates: not in the call report. Typical relative rates (regular %.2f, drafts %.2f, money "
                  "market %.2f, IRA %.2f, certificates %.2f) scaled by %.3f so shares cost the $%s a year of "
-                 "dividends reported." % (SHARE_WEIGHTS["regular_shares"], SHARE_WEIGHTS["share_drafts"],
-                                         SHARE_WEIGHTS["money_market"], SHARE_WEIGHTS["ira_shares"],
-                                         SHARE_WEIGHTS["certificates"], share_scale, "{:,.0f}".format(dividends)))
+                 "dividends reported%s." % (SHARE_WEIGHTS["regular_shares"], SHARE_WEIGHTS["share_drafts"],
+                                           SHARE_WEIGHTS["money_market"], SHARE_WEIGHTS["ira_shares"],
+                                           SHARE_WEIGHTS["certificates"], share_scale, "{:,.0f}".format(dividends),
+                                           " on the average of the period's opening and closing balances"
+                                           if opening else ""))
 
     # ---- borrowings
     borrowed = g("borrowings")
     cost = yearly("borrowing_interest")
-    rate = 100.0 * cost / borrowed if borrowed else 0.0
+    paid_on = _period_average(borrowed, opening.get(cu, "borrowings")) if opening else borrowed
+    rate = 100.0 * cost / paid_on if borrowed else 0.0
     bands = [(g("borrow_1"), 6), (g("borrow_3"), 24), (g("borrow_long"), 48)]
     banded = sum(b for b, _ in bands)
     for amount, term in bands:
@@ -554,17 +588,35 @@ def build(report, cu, curve=None, prior=None, year_ago=None):
                                                                   "{:,.0f}".format(assets - liabilities)))
     raw["notes"]["calibration"] = " ".join(n for n in notes if n)
     ties = {"assets": (assets, sum(r["balance"] for r in rows if r["side"] == "asset")),
-            "investment_income": (income, sum(r["balance"] * (short if r["product"] == "cash" else r["rate"] / 100.0)
+            # Income and loan interest tie on the balances that earned them, as dividends do.
+            "investment_income": (reported_income, (1.0 / inv_basis) * sum(r["balance"] * (short if r["product"] == "cash" else r["rate"] / 100.0)
                                               for r in rows if r["product"] in
                                               ("cash", "investments", "mortgage_securities"))),
             "liabilities": (liabilities, sum(r["balance"] for r in rows if r["side"] == "liability")),
-            "loan_interest": (reported, sum(r["balance"] * r["rate"] / 100.0 for r in rows
+            "loan_interest": (reported, (1.0 / loan_basis) * sum(r["balance"] * r["rate"] / 100.0 for r in rows
                                             if r["side"] == "asset" and r["product"] not in
                                             ("cash", "investments", "mortgage_securities")
                                             and r["rate_type"] != "none")),
-            "dividends": (dividends, sum(r["balance"] * r["rate"] / 100.0 for r in rows
-                                         if r["side"] == "liability" and r["product"] != "borrowings"))}
+            # On the balances the dividends were paid on: the period's average when a report opens it.
+            "dividends": (dividends, (earned_on / weighted if weighted else 1.0)
+                          * sum(r["balance"] * r["rate"] / 100.0 for r in rows
+                                if r["side"] == "liability" and r["product"] != "borrowings"))}
     return rows, raw, ties
+
+
+#: How far a period's average balance may sit from its closing one. A merger
+#: or a large borrowing late in the quarter moves the closing balance by more
+#: than this, and the mean of two quarter-ends then says little about the days
+#: between them.
+AVERAGE_BOUND = 0.15
+
+
+def _period_average(closing, opening):
+    """The mean of a period's opening and closing balances, held within
+    AVERAGE_BOUND of the closing one; the closing balance when nothing opened it."""
+    if closing <= 0 or opening <= 0:
+        return closing
+    return min(max((closing + opening) / 2.0, closing / (1.0 + AVERAGE_BOUND)), closing / (1.0 - AVERAGE_BOUND))
 
 
 def price_to(rows, raw, groups):

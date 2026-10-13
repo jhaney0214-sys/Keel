@@ -424,6 +424,31 @@ class Validation(unittest.TestCase):
         self.assertAlmostEqual(raw["products"]["certificates"]["growth"], 2.0, places=2)
         self.assertIn("peer group", raw["notes"]["calibration"])
 
+    def test_rates_are_set_on_the_balances_that_earned_the_income(self):
+        """June's balances are 2% over March's, so the quarter's average is
+        about 1% under the closing balance and each rate about 1% higher than
+        the closing balance alone gives. Without the opening report the
+        closing balance stands in, as before."""
+        march, june = callreport.CallReport(self.march), callreport.CallReport(self.june)
+        alone, _, ties_alone = callreport.build(june, "1")
+        opened, raw, ties = callreport.build(june, "1", prior=march)
+        self.assertIn("average of the period's opening and closing balances", raw["notes"]["calibration"])
+        for key in ("loan_interest", "dividends", "investment_income"):
+            self.assertAlmostEqual(ties[key][1] / ties[key][0], 1.0, places=3, msg=key)
+            self.assertAlmostEqual(ties_alone[key][1] / ties_alone[key][0], 1.0, places=3, msg=key)
+        cost = lambda rows: sum(r["balance"] * r["rate"] for r in rows  # noqa: E731
+                                if r["side"] == "liability" and r["product"] != "borrowings")
+        # The latest quarter's dividends on the average balance, then paid on the closing one.
+        closing, average = 85e6, (85e6 + 85e6 / 1.02) / 2.0
+        quarter = june.latest("1", "dividends", march) + june.latest("1", "deposit_interest", march)
+        self.assertAlmostEqual(cost(opened) / 100.0, quarter * closing / average, delta=quarter * 2e-3)
+
+    def test_a_merger_does_not_halve_the_average(self):
+        self.assertEqual(callreport._period_average(100.0, 0.0), 100.0)
+        self.assertAlmostEqual(callreport._period_average(100.0, 98.0), 99.0)
+        self.assertAlmostEqual(callreport._period_average(100.0, 20.0), 100.0 / 1.15)
+        self.assertAlmostEqual(callreport._period_average(100.0, 400.0), 100.0 / 0.85)
+
     def test_the_chain_needs_later_reports(self):
         with self.assertRaises(model.InputError):
             validate.run(self.june, self.march)

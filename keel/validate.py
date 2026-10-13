@@ -108,7 +108,9 @@ def run(earlier_path, later_path, limit=None, base_case="flat", min_assets=0.0, 
             skipped["no assets"] = skipped.get("no assets", 0) + 1
             continue
         try:
-            f = forecast(earlier, cu, months, base_case, prior if latest else None, year_ago)
+            # The build decides what a prior report is good for: last December's
+            # opens a March quarter's balances though its income is another year's.
+            f = forecast(earlier, cu, months, base_case, prior, year_ago)
         except (InputError, ValueError, ZeroDivisionError) as error:
             key = type(error).__name__
             skipped[key] = skipped.get(key, 0) + 1
