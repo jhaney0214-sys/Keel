@@ -401,6 +401,20 @@ class Validation(unittest.TestCase):
         s = r["summary"]["all"]["nii"]
         self.assertIn("keel_closer", s)
 
+    def test_the_parts_of_nii_are_scored_and_add_up(self):
+        r = validate.run(self.march, self.june)
+        row = next(x for x in r["rows"] if x["cu"] == "1")
+        for which in ("actual", "keel"):
+            parts = (row["loan_interest_" + which] + row["investment_income_" + which]
+                     - row["interest_expense_" + which])
+            self.assertAlmostEqual(parts, row["nii_" + which], delta=abs(row["nii_" + which]) * 1e-6,
+                                   msg="loan interest + investment income - expense is NII (%s)" % which)
+        band = r["summary"]["all"]
+        self.assertEqual(sorted(band["of_nii"]), sorted(validate.PARTS))
+        for part in validate.PARTS:
+            self.assertIn("keel", band[part])
+        self.assertIn("the parts of NII", validate.text(r))
+
     def test_growth_blends_the_credit_unions_year_and_its_peers(self):
         march, june = callreport.CallReport(self.march), callreport.CallReport(self.june)
         rates = callreport.growth_rates(june, march, "1")      # the test's "year ago" is March: 2% growth

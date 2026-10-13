@@ -30,6 +30,10 @@ from keel import callreport, engine, model
 from keel.model import InputError
 
 MEASURES = ("nii", "assets", "loans", "shares", "net_worth_change")
+#: Net interest income by its three parts, scored the same way since
+#: 2026-10-13. The methodology had said in prose which part carries the error;
+#: this is that sentence as a number every run reproduces.
+PARTS = ("loan_interest", "investment_income", "interest_expense")
 BANDS = (("under $10M", 0, 10e6), ("$10M to $100M", 10e6, 100e6), ("$100M to $1B", 100e6, 1e9),
          ("$1B and over", 1e9, float("inf")))
 LOAN_PRODUCTS = {p for p, *_ in callreport.LOANS} | {"other_loans"}
@@ -52,6 +56,14 @@ def _nii_ytd(report, cu):
     return report.get(cu, "interest_income") - report.get(cu, "interest_expense")
 
 
+def _part_ytd(report, cu, part):
+    """A part of NII, year to date. Loan interest is net of interest refunded,
+    as the call report's total interest income is."""
+    if part == "loan_interest":
+        return report.get(cu, "loan_interest") - report.get(cu, "interest_refunded")
+    return report.get(cu, part)
+
+
 def forecast(earlier, cu, months, base_case="flat", prior=None, year_ago=None):
     """Keel's forecast for `cu` `months` ahead, from the earlier cycle
     (calibrated on its latest quarter when `prior` is given, with growth
@@ -64,7 +76,12 @@ def forecast(earlier, cu, months, base_case="flat", prior=None, year_ago=None):
     run = engine.going_concern(positions, a, a.scenarios[0], months=months)
     _, _, _, opening_equity = engine.opening(positions)
     end = run[months - 1]
+    loan_interest = sum(v for m in run[:months] for k, v in m.interest.items() if k in LOAN_PRODUCTS)
     return {"nii": sum(m.nii for m in run[:months]), "assets": end.assets,
+            "loan_interest": loan_interest,
+            # Everything that earns and is not a loan: investments, and cash.
+            "investment_income": sum(m.interest_income for m in run[:months]) - loan_interest,
+            "interest_expense": sum(m.interest_expense for m in run[:months]),
             "loans": sum(v for k, v in end.balances.items() if k in LOAN_PRODUCTS),
             "shares": sum(v for k, v in end.balances.items() if k in SHARE_PRODUCTS),
             "net_worth_change": end.equity - opening_equity}
@@ -107,14 +124,23 @@ def run(earlier_path, later_path, limit=None, base_case="flat", min_assets=0.0, 
         # The plan's months are equal twelfths of a year; interest accrues by
         # the day. Keel's quarter is set to the quarter's actual days.
         f["nii"] *= days / (365.0 * months / 12.0)
+        for part in PARTS:
+            f[part] *= days / (365.0 * months / 12.0)
         actual_nii = _nii_ytd(later, cu) - (_nii_ytd(earlier, cu) if same_year else 0.0)
         actual = {"nii": actual_nii, "assets": later.get(cu, "assets"), "loans": later.get(cu, "loans"),
                   "shares": later.get(cu, "shares"),
                   "net_worth_change": later.get(cu, "net_worth") - earlier.get(cu, "net_worth")}
         naive = {"nii": prior_nii, "assets": assets, "loans": earlier.get(cu, "loans"),
                  "shares": earlier.get(cu, "shares"), "net_worth_change": prior_ni}
+        for part in PARTS:
+            actual[part] = _part_ytd(later, cu, part) - (_part_ytd(earlier, cu, part) if same_year else 0.0)
+            if latest and cu in prior.data:
+                naive[part] = (_part_ytd(earlier, cu, part) - _part_ytd(prior, cu, part)) * days / float(
+                    earlier.days - prior.days)
+            else:
+                naive[part] = _part_ytd(earlier, cu, part) * days / float(earlier.days)
         row = {"cu": cu, "name": earlier.name(cu), "assets": assets}
-        for m in MEASURES:
+        for m in MEASURES + PARTS:
             row[m + "_actual"], row[m + "_keel"], row[m + "_naive"] = actual[m], f[m], naive[m]
         rows.append(row)
         if limit and len(rows) >= limit:
@@ -135,6 +161,17 @@ def _errors(rows, measure, which):
     return out
 
 
+def _of_nii(rows, part, which="keel"):
+    """A part's error in percent of the credit union's actual NII, so the three
+    parts can be set beside each other and beside the NII error itself."""
+    out = []
+    for r in rows:
+        nii = r["nii_actual"]
+        if nii > 0 and (part + "_actual") in r:
+            out.append(100.0 * (r[part + "_" + which] - r[part + "_actual"]) / nii)
+    return out
+
+
 def summarize(rows):
     """{band: {measure: {which: stats}}} with band "all" for everything."""
     out = {}
@@ -143,7 +180,15 @@ def summarize(rows):
         if not group:
             continue
         band = out[label] = {"count": len(group)}
-        for m in MEASURES:
+        band["of_nii"] = {}
+        for part in PARTS:
+            e = _of_nii(group, part)
+            if e:
+                band["of_nii"][part] = {"median_abs": statistics.median(abs(x) for x in e),
+                                        "bias": statistics.median(e)}
+        for m in MEASURES + PARTS:
+            if m in PARTS and not all((m + "_actual") in r for r in group):
+                continue
             band[m] = {}
             for which in ("keel", "naive"):
                 e = _errors(group, m, which)
@@ -161,7 +206,8 @@ def summarize(rows):
 
 
 LABELS = {"nii": "Quarter NII", "assets": "Total assets", "loans": "Loans", "shares": "Shares",
-          "net_worth_change": "Net worth change"}
+          "net_worth_change": "Net worth change", "loan_interest": "Loan interest",
+          "investment_income": "Investment income", "interest_expense": "Interest expense"}
 
 
 def text(result):
@@ -181,6 +227,13 @@ def text(result):
                 continue
             lines.append("  %-18s %10.2f | %+8.2f %12.2f | %+8.2f %10.0f%%" % (
                 LABELS[m], k["median_abs"], k["bias"], n["median_abs"], n["bias"], 100 * s[m].get("keel_closer", 0)))
+        if s.get("of_nii"):
+            lines.append("  the parts of NII: error in percent of the part, then in percent of NII")
+            for part in PARTS:
+                k, share = s.get(part, {}).get("keel"), s["of_nii"].get(part)
+                if k and share:
+                    lines.append("  %-18s %10.2f | %+8.2f %12.2f | %+8.2f" % (
+                        LABELS[part], k["median_abs"], k["bias"], share["median_abs"], share["bias"]))
         lines.append("")
     return "\n".join(lines)
 

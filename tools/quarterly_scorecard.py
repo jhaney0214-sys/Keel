@@ -131,6 +131,28 @@ def band_table(summary, measure):
     return rows
 
 
+def parts_sentence(a):
+    """Which part of NII carries the error, read off the numbers each run.
+
+    Until 2026-10-13 this was a fixed sentence saying investment income did.
+    It was written from one look at the figures and never re-derived."""
+    shares = sorted(((a["of_nii"][p]["median_abs"], p) for p in validate.PARTS), reverse=True)
+    relative = max(validate.PARTS, key=lambda p: a[p]["keel"]["median_abs"])
+    (top, first), (second, runner) = shares[0], shares[1]
+    text = ("- By part, %s is forecast least well for its own size (median error %.1f%% of the line). "
+            % (validate.LABELS[relative].lower(), a[relative]["keel"]["median_abs"]))
+    if top > 1.25 * second:
+        text += ("Measured against NII, %s costs the most: a median %.1f%% of NII, with %s next at %.1f%%."
+                 % (validate.LABELS[first].lower(), top, validate.LABELS[runner].lower(), second))
+    else:
+        text += ("Measured against NII no one part stands out: %s costs a median %.1f%% of NII and %s %.1f%%."
+                 % (validate.LABELS[first].lower(), top, validate.LABELS[runner].lower(), second))
+    if relative == "investment_income":
+        text += (" Investment income moves with rates inside the quarter, which a forecast made at its start "
+                 "cannot know.")
+    return text
+
+
 def markdown(result, recent):
     pooled = validate.summarize([r for p in recent for r in p["rows"]])
     first, last = recent[0]["from"], recent[-1]["to"]
@@ -153,6 +175,16 @@ def markdown(result, recent):
     lines += ["", "%s credit-union quarters." % "{:,}".format(a["count"]), "",
               "## Quarterly NII by size", "", "| Assets | Credit-union quarters | Keel | Keel bias | Naive | "
               "Keel closer |", "|---|---|---|---|---|---|"] + band_table(pooled, "nii")
+    lines += ["", "## The parts of NII", "",
+              "The same forecasts, by the three lines NII is made of. \"Of NII\" is the part's error in percent of "
+              "that credit union's NII, which is what lets the three be compared: a large miss on a small line can "
+              "matter less than a small miss on a large one.", "",
+              "| Part | Keel | Keel bias | Naive | Keel closer | Of NII | Of NII, bias |", "|---|---|---|---|---|---|---|"]
+    for part in validate.PARTS:
+        k, n, share = a[part]["keel"], a[part]["naive"], a["of_nii"][part]
+        lines.append("| %s | %.2f | %+.2f | %.2f | %.0f%% | %.2f | %+.2f |" % (
+            validate.LABELS[part], k["median_abs"], k["bias"], n["median_abs"], 100 * a[part]["keel_closer"],
+            share["median_abs"], share["bias"]))
     lines += ["", "## Each quarter", "", "| Quarter | Credit unions | NII: Keel | NII: naive | NII: Keel closer | "
               "Loans: Keel | Shares: Keel |", "|---|---|---|---|---|---|---|"]
     for p in result["pairs"]:
@@ -170,9 +202,7 @@ def markdown(result, recent):
         lines.append("- One quarter ahead, %s %s forecast no better than by \"nothing changes\" (Keel closer for "
                      "under 52%% of credit unions); Keel's value there is in the scenarios, not the base forecast."
                      % (" and ".join(weak), "is" if len(weak) == 1 else "are"))
-    lines += [
-              "- Investment income moves with rates inside the quarter, which a forecast made at the start cannot "
-              "know; most of the remaining NII error is there.",
+    lines += [parts_sentence(a),
               "- Every credit union here runs on Keel's default behaviour. A credit union's own files and deposit "
               "study should do better; none has yet been compared side by side with a production ALM model."]
     return "\n".join(lines) + "\n", pooled
